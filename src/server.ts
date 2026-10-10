@@ -8,6 +8,7 @@ import gameRoutes from './routes/game';
 import adminRoutes from './routes/admin';
 import { gameEngine } from './game/gameEngine';
 import { wsServer } from './ws/websocketServer';
+import { db } from './store/db';
 
 dotenv.config();
 
@@ -45,8 +46,12 @@ app.get('/health', (_req: Request, res: Response) => {
 const server = http.createServer(app);
 wsServer.init(server);
 
-// Start Game Engine
-gameEngine.init();
+// Start DB and Game Engine
+db.connectMongo().then(() => {
+  gameEngine.init();
+}).catch(() => {
+  gameEngine.init();
+});
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`===============================================`);
