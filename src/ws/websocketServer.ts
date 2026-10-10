@@ -71,13 +71,27 @@ export class WsServer {
 
       case 'join_game': {
         const gameId: GameId = data.gameId || 'lucky12';
-        const username: string = data.username || 'demo';
+        const username: string = (data.username || 'player').trim();
         client.gameId = gameId;
         client.username = username;
 
+        let user = db.getUserByUsername(username);
+        if (!user && username) {
+          user = db.addUser({
+            id: 'usr-' + Math.random().toString(36).substring(2, 9),
+            username,
+            name: username,
+            password: '123',
+            role: 'user',
+            balance: 10000,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+          });
+          this.broadcastToAdmins('user_created', user);
+        }
+
         const round = gameEngine.getRound(gameId);
         const history = db.getRoundHistory(gameId, 15);
-        const user = db.getUserByUsername(username);
 
         this.send(client.ws, 'game_state', {
           gameId,
@@ -108,8 +122,23 @@ export class WsServer {
 
       case 'place_bet': {
         const gameId: GameId = data.gameId || client.gameId || 'lucky12';
-        const username = data.username || client.username || 'demo';
+        const username: string = (data.username || client.username || 'player').trim();
         const bets = Array.isArray(data.bets) ? data.bets : [{ targetIndex: data.targetIndex, points: data.points }];
+
+        let user = db.getUserByUsername(username);
+        if (!user && username) {
+          user = db.addUser({
+            id: 'usr-' + Math.random().toString(36).substring(2, 9),
+            username,
+            name: username,
+            password: '123',
+            role: 'user',
+            balance: 10000,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+          });
+          this.broadcastToAdmins('user_created', user);
+        }
 
         for (const b of bets) {
           const res = gameEngine.placeAllocation(gameId, username, b.targetIndex, b.points, false);
@@ -120,6 +149,7 @@ export class WsServer {
               allocation: res.allocation,
               newBalance: res.newBalance,
             });
+            this.broadcastOnlinePlayers();
           }
         }
         break;
@@ -223,13 +253,13 @@ export class WsServer {
   public getOnlinePlayersList(): any[] {
     const active = new Map<string, any>();
     this.clients.forEach((c) => {
-      if (c.username) {
+      if (c.username && !c.isAdmin) {
         const u = db.getUserByUsername(c.username);
         active.set(c.username, {
           username: c.username,
           name: u?.name || c.username,
-          balance: u?.balance ?? 0,
-          gameId: c.gameId || 'lobby',
+          balance: u?.balance ?? 10000,
+          gameId: c.gameId || 'lucky12',
           connectedAt: c.connectedAt,
         });
       }
