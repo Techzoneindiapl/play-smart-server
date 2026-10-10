@@ -25,30 +25,11 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 const INITIAL_DB: DatabaseSchema = {
   users: [
-    { id: 'demo-001', username: 'demo', name: 'Demo id', password: '123', role: 'user', balance: 50000, status: 'active', createdAt: '2026-01-01T00:00:00.000Z' },
-    { id: 'user-002', username: 'Kevin', name: 'Kevin', password: '123', role: 'user', balance: 12400, status: 'active', createdAt: '2026-01-02T00:00:00.000Z' },
-    { id: 'user-003', username: 'RJ', name: 'RJ', password: '123', role: 'user', balance: 18500, status: 'active', createdAt: '2026-01-02T00:00:00.000Z' },
-    { id: 'user-004', username: 'Kesri', name: 'Kesri', password: '123', role: 'user', balance: 9400, status: 'active', createdAt: '2026-01-02T00:00:00.000Z' },
-    { id: 'user-005', username: 'Meera', name: 'Meera', password: '123', role: 'user', balance: 22000, status: 'active', createdAt: '2026-01-03T00:00:00.000Z' },
-    { id: 'user-006', username: 'Tobi', name: 'Tobi', password: '123', role: 'user', balance: 7500, status: 'active', createdAt: '2026-01-03T00:00:00.000Z' },
-    { id: 'user-007', username: 'Ana', name: 'Ana', password: '123', role: 'user', balance: 14000, status: 'active', createdAt: '2026-01-04T00:00:00.000Z' },
-    { id: 'user-008', username: 'Sam', name: 'Sam', password: '123', role: 'user', balance: 31000, status: 'active', createdAt: '2026-01-04T00:00:00.000Z' },
-    { id: 'user-009', username: 'Priya', name: 'Priya', password: '123', role: 'user', balance: 16800, status: 'active', createdAt: '2026-01-05T00:00:00.000Z' },
     { id: 'admin-001', username: 'admin', name: 'Administrator', password: 'admin', role: 'admin', balance: 1000000, status: 'active', createdAt: '2026-01-01T00:00:00.000Z' },
   ],
-  superdistributers: [
-    { id: 'SD-101', name: 'Apex Gaming Hub', code: 'APEX', commission: 2.5, balance: 125000, status: 'active', usersCount: 142, createdAt: '2026-01-01' },
-    { id: 'SD-102', name: 'Royal Club Dist', code: 'ROYAL', commission: 2.0, balance: 84000, status: 'active', usersCount: 98, createdAt: '2026-01-05' },
-    { id: 'SD-103', name: 'Premier Gaming', code: 'PREM', commission: 2.8, balance: 210000, status: 'active', usersCount: 220, createdAt: '2026-01-10' },
-  ],
-  distributers: [
-    { id: 'D-201', superId: 'SD-101', name: 'Gold Star Network', code: 'GOLD', commission: 1.5, balance: 42000, status: 'active', usersCount: 45, createdAt: '2026-01-02' },
-    { id: 'D-202', superId: 'SD-101', name: 'Silver Play Network', code: 'SILVER', commission: 1.2, balance: 28500, status: 'active', usersCount: 32, createdAt: '2026-01-04' },
-    { id: 'D-203', superId: 'SD-102', name: 'Vegas Star Club', code: 'VEGAS', commission: 1.4, balance: 36000, status: 'active', usersCount: 51, createdAt: '2026-01-06' },
-  ],
-  transactions: [
-    { id: 'TX-1001', userId: 'demo-001', username: 'demo', type: 'deposit', amount: 50000, description: 'Initial balance', time: new Date().toISOString(), balanceAfter: 50000 },
-  ],
+  superdistributers: [],
+  distributers: [],
+  transactions: [],
   roundHistory: [],
   rtpConfig: {
     houseMargin: 13.6,

@@ -36,13 +36,9 @@ const GAME_CONFIGS: Record<GameId, GameConfigData> = {
   },
 };
 
-const BOT_NAMES = ['Kevin', 'RJ', 'Kesri', 'Meera', 'Tobi', 'Ana', 'Sam', 'Priya'];
-const CHIP_VALUES = [10, 20, 50, 100, 500];
-
 export class GameEngine extends EventEmitter {
   private activeRounds: Map<GameId, Round> = new Map();
   private timers: Map<GameId, NodeJS.Timeout> = new Map();
-  private botTimers: Map<GameId, NodeJS.Timeout[]> = new Map();
 
   constructor() {
     super();
@@ -51,7 +47,6 @@ export class GameEngine extends EventEmitter {
   public init(): void {
     const games: GameId[] = ['lucky12', 'lucky16', 'luckyTimer'];
     games.forEach(g => {
-      this.botTimers.set(g, []);
       this.startNewRound(g);
     });
   }
@@ -72,10 +67,6 @@ export class GameEngine extends EventEmitter {
     // Clear existing timers for this game
     const existingTimer = this.timers.get(gameId);
     if (existingTimer) clearTimeout(existingTimer);
-
-    const bots = this.botTimers.get(gameId) || [];
-    bots.forEach(t => clearTimeout(t));
-    this.botTimers.set(gameId, []);
 
     const config = GAME_CONFIGS[gameId];
     const serverSeed = randomHex(24);
@@ -108,31 +99,8 @@ export class GameEngine extends EventEmitter {
       round: this.sanitizeRound(round),
     });
 
-    this.scheduleBots(gameId);
     this.scheduleTick(gameId);
     return round;
-  }
-
-  private scheduleBots(gameId: GameId): void {
-    const round = this.activeRounds.get(gameId);
-    if (!round) return;
-
-    const deck = GAME_CONFIGS[gameId].deck;
-    const botCount = 2 + Math.floor(Math.random() * 3);
-    const shuffled = [...BOT_NAMES].sort(() => Math.random() - 0.5);
-
-    const botTimerList: NodeJS.Timeout[] = [];
-    for (let i = 0; i < botCount; i++) {
-      const delay = 1000 + Math.random() * (round.totalSeconds - 6) * 1000;
-      const t = setTimeout(() => {
-        if (round.status !== 'betting') return;
-        const targetIndex = Math.floor(Math.random() * deck.length);
-        const points = CHIP_VALUES[Math.floor(Math.random() * CHIP_VALUES.length)];
-        this.placeAllocation(gameId, shuffled[i], targetIndex, points, true);
-      }, delay);
-      botTimerList.push(t);
-    }
-    this.botTimers.set(gameId, botTimerList);
   }
 
   private scheduleTick(gameId: GameId): void {
