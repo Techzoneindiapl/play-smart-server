@@ -1,0 +1,246 @@
+import { Server as HttpServer } from 'http';
+import WebSocket, { WebSocketServer } from 'ws';
+import { GameId } from '../types';
+import { gameEngine } from '../game/gameEngine';
+import { db } from '../store/db';
+
+interface ConnectedClient {
+  id: string;
+  ws: WebSocket;
+  username?: string;
+  gameId?: GameId;
+  isAdmin: boolean;
+  connectedAt: number;
+}
+
+export class WsServer {
+  private wss: WebSocketServer | null = null;
+  private clients: Map<string, ConnectedClient> = new Map();
+
+  public init(httpServer: HttpServer): void {
+    this.wss = new WebSocketServer({ server: httpServer });
+
+    this.wss.on('connection', (ws: WebSocket) => {
+      const clientId = 'CLI-' + Math.random().toString(36).substring(2, 9);
+      const client: ConnectedClient = {
+        id: clientId,
+        ws,
+        isAdmin: false,
+        connectedAt: Date.now(),
+      };
+      this.clients.set(clientId, client);
+
+      ws.on('message', (messageRaw: WebSocket.RawData) => {
+        try {
+          const str = messageRaw.toString();
+          const parsed = JSON.parse(str);
+          this.handleClientMessage(client, parsed);
+        } catch (err) {
+          console.error('Error parsing client message:', err);
+        }
+      });
+
+      ws.on('close', () => {
+        this.clients.delete(clientId);
+        this.broadcastOnlinePlayers();
+      });
+
+      ws.on('error', (err) => {
+        console.error('WS client error:', err);
+        this.clients.delete(clientId);
+        this.broadcastOnlinePlayers();
+      });
+
+      // Send initial welcome
+      this.send(ws, 'connected', { clientId, serverTime: Date.now() });
+      this.broadcastOnlinePlayers();
+    });
+
+    this.bindGameEngineEvents();
+  }
+
+  private handleClientMessage(client: ConnectedClient, payload: any): void {
+    // Both { event: 'name', data: {...} } and { type: 'name', ... } envelopes are supported
+    const event = payload.event || payload.type;
+    const data = payload.data !== undefined ? payload.data : payload;
+
+    switch (event) {
+      case 'ping':
+        this.send(client.ws, 'pong', { time: Date.now() });
+        break;
+
+      case 'join_game': {
+        const gameId: GameId = data.gameId || 'lucky12';
+        const username: string = data.username || 'demo';
+        client.gameId = gameId;
+        client.username = username;
+
+        const round = gameEngine.getRound(gameId);
+        const history = db.getRoundHistory(gameId, 15);
+        const user = db.getUserByUsername(username);
+
+        this.send(client.ws, 'game_state', {
+          gameId,
+          round: round ? gameEngine.sanitizeRound(round) : null,
+          history,
+          user: user ? { username: user.username, balance: user.balance } : null,
+        });
+
+        this.broadcastOnlinePlayers();
+        break;
+      }
+
+      case 'admin_subscribe': {
+        client.isAdmin = true;
+        const activeRounds = gameEngine.getAllActiveRounds();
+        const history = db.getRoundHistory(undefined, 20);
+        const online = this.getOnlinePlayersList();
+
+        this.send(client.ws, 'admin_state', {
+          activeRounds,
+          history,
+          online,
+          users: db.getUsers(),
+          rtpConfig: db.getRtpConfig(),
+        });
+        break;
+      }
+
+      case 'place_bet': {
+        const gameId: GameId = data.gameId || client.gameId || 'lucky12';
+        const username = data.username || client.username || 'demo';
+        const bets = Array.isArray(data.bets) ? data.bets : [{ targetIndex: data.targetIndex, points: data.points }];
+
+        for (const b of bets) {
+          const res = gameEngine.placeAllocation(gameId, username, b.targetIndex, b.points, false);
+          if (!res.success) {
+            this.send(client.ws, 'bet_error', { error: res.error, targetIndex: b.targetIndex });
+          } else {
+            this.send(client.ws, 'bet_success', {
+              allocation: res.allocation,
+              newBalance: res.newBalance,
+            });
+          }
+        }
+        break;
+      }
+
+      case 'admin_set_forced_winner': {
+        const { gameId, index, mode, multiplier } = data;
+        gameEngine.setForcedWinner(gameId, index, mode, multiplier);
+        break;
+      }
+
+      case 'admin_force_lock': {
+        const { gameId } = data;
+        gameEngine.forceLockAndReveal(gameId);
+        break;
+      }
+
+      case 'admin_update_rtp': {
+        const { rtpConfig } = data;
+        if (rtpConfig) {
+          const updated = db.updateRtpConfig(rtpConfig);
+          this.broadcastToAdmins('rtp_updated', { rtpConfig: updated });
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+
+  private bindGameEngineEvents(): void {
+    gameEngine.on('round_started', ({ gameId, round }) => {
+      this.broadcastToGame(gameId, 'round_start', { gameId, round });
+      this.broadcastToAdmins('round_start', { gameId, round });
+    });
+
+    gameEngine.on('game_timer', (timerData) => {
+      this.broadcastToGame(timerData.gameId, 'game_timer', timerData);
+      this.broadcastToAdmins('game_timer', timerData);
+    });
+
+    gameEngine.on('betting_closed', (closedData) => {
+      this.broadcastToGame(closedData.gameId, 'betting_closed', closedData);
+      this.broadcastToAdmins('betting_closed', closedData);
+    });
+
+    gameEngine.on('new_allocation', (allocData) => {
+      this.broadcastToGame(allocData.gameId, 'new_allocation', allocData);
+      this.broadcastToAdmins('new_allocation', allocData);
+    });
+
+    gameEngine.on('game_result', (resultData) => {
+      this.broadcastToGame(resultData.gameId, 'game_result', resultData);
+      this.broadcastToAdmins('game_result', resultData);
+    });
+
+    gameEngine.on('user_balance_updated', ({ username, balance }) => {
+      this.sendToUser(username, 'balance_updated', { username, balance });
+      this.broadcastToAdmins('user_balance_updated', { username, balance });
+    });
+
+    gameEngine.on('admin_forced_updated', (forcedData) => {
+      this.broadcastToAdmins('admin_forced_updated', forcedData);
+    });
+  }
+
+  public send(ws: WebSocket, event: string, data: any): void {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ event, data, timestamp: Date.now() }));
+    }
+  }
+
+  public broadcastToGame(gameId: GameId, event: string, data: any): void {
+    const payload = JSON.stringify({ event, data, timestamp: Date.now() });
+    this.clients.forEach((c) => {
+      if (c.gameId === gameId && c.ws.readyState === WebSocket.OPEN) {
+        c.ws.send(payload);
+      }
+    });
+  }
+
+  public broadcastToAdmins(event: string, data: any): void {
+    const payload = JSON.stringify({ event, data, timestamp: Date.now() });
+    this.clients.forEach((c) => {
+      if (c.isAdmin && c.ws.readyState === WebSocket.OPEN) {
+        c.ws.send(payload);
+      }
+    });
+  }
+
+  public sendToUser(username: string, event: string, data: any): void {
+    const payload = JSON.stringify({ event, data, timestamp: Date.now() });
+    this.clients.forEach((c) => {
+      if (c.username && c.username.toLowerCase() === username.toLowerCase() && c.ws.readyState === WebSocket.OPEN) {
+        c.ws.send(payload);
+      }
+    });
+  }
+
+  public getOnlinePlayersList(): any[] {
+    const active = new Map<string, any>();
+    this.clients.forEach((c) => {
+      if (c.username) {
+        const u = db.getUserByUsername(c.username);
+        active.set(c.username, {
+          username: c.username,
+          name: u?.name || c.username,
+          balance: u?.balance ?? 0,
+          gameId: c.gameId || 'lobby',
+          connectedAt: c.connectedAt,
+        });
+      }
+    });
+    return Array.from(active.values());
+  }
+
+  public broadcastOnlinePlayers(): void {
+    const list = this.getOnlinePlayersList();
+    this.broadcastToAdmins('online_players', { count: list.length, players: list });
+  }
+}
+
+export const wsServer = new WsServer();
