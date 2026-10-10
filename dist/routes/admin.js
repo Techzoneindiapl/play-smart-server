@@ -41,7 +41,8 @@ router.post('/users', (req, res) => {
 });
 router.post('/users/:id/status', (req, res) => {
     const { status } = req.body;
-    const updated = db_1.db.updateUser(req.params.id, { status });
+    const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const updated = db_1.db.updateUser(userId, { status });
     if (!updated)
         return res.status(404).json({ error: 'User not found' });
     return res.json(updated);
