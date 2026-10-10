@@ -139,8 +139,8 @@ router.get('/reports/turnover', (_req: Request, res: Response) => {
     return {
       allocated: allocated.toLocaleString(),
       payout: payout.toLocaleString(),
-      rounds: rounds || (hours === 24 ? 42 : 1),
-      users: users || (hours === 24 ? 12 : 2),
+      rounds,
+      users,
     };
   };
 
@@ -164,7 +164,7 @@ router.get('/reports/commission', (_req: Request, res: Response) => {
   const sds = db.getSuperDistributers();
   const dists = db.getDistributers();
   const history = db.getRoundHistory(undefined, 500);
-  const totalBets = history.reduce((s, h) => s + h.totalBets, 0) || 150000;
+  const totalBets = history.reduce((s, h) => s + h.totalBets, 0);
 
   const data = dists.map(d => {
     const commAmt = Math.round((totalBets * (d.commission / 100)) * 100) / 100;
