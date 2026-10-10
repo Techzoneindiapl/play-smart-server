@@ -102,6 +102,8 @@ export interface RoundHistoryEntry {
   playerCount: number;
   isOverridden: boolean;
   time: string;
+  allocations?: Allocation[];
+  winners?: { username: string; points: number; winAmount: number; multiplier: number }[];
 }
 
 export interface RtpConfig {

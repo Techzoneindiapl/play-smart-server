@@ -221,6 +221,8 @@ export class GameEngine extends EventEmitter {
       totalBets,
       totalPayouts: totalPayout,
       playerCount: uniquePlayers,
+      allocations: [...round.allocations],
+      winners,
       isOverridden,
       time: new Date().toISOString(),
     };

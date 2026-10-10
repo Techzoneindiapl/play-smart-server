@@ -78,6 +78,8 @@ export const RoundHistorySchema = new Schema<IRoundHistoryDoc>({
   playerCount: { type: Number, default: 0 },
   isOverridden: { type: Boolean, default: false },
   time: { type: String, default: () => new Date().toISOString() },
+  allocations: { type: Schema.Types.Mixed, default: [] },
+  winners: { type: Schema.Types.Mixed, default: [] },
 });
 
 export const RoundHistoryModel =
