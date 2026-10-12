@@ -90,14 +90,15 @@ router.get('/superdistributers', (_req: Request, res: Response) => {
 });
 
 router.post('/superdistributers', (req: Request, res: Response) => {
-  const { name, code, commission, balance } = req.body;
+  const { name, username, code, commission, balance, status } = req.body;
+  const sdName = (name || username || 'Super Distributer').trim();
   const sd = db.addSuperDistributer({
     id: 'SD-' + Math.floor(100 + Math.random() * 900),
-    name: name || 'Super Distributer',
+    name: sdName,
     code: code || ('SD' + Math.floor(10 + Math.random() * 90)),
     commission: Number(commission) || 2.5,
     balance: Number(balance) || 50000,
-    status: 'active',
+    status: (status === 'deactive' || status === 'blocked') ? 'blocked' : 'active',
     usersCount: 0,
     createdAt: new Date().toISOString().slice(0, 10),
   });
@@ -109,15 +110,16 @@ router.get('/distributers', (_req: Request, res: Response) => {
 });
 
 router.post('/distributers', (req: Request, res: Response) => {
-  const { name, code, commission, balance, superId } = req.body;
+  const { name, username, code, commission, balance, superId, status } = req.body;
+  const distName = (name || username || 'Distributer').trim();
   const dist = db.addDistributer({
     id: 'D-' + Math.floor(200 + Math.random() * 800),
     superId: superId || 'SD-101',
-    name: name || 'Distributer',
+    name: distName,
     code: code || ('D' + Math.floor(10 + Math.random() * 90)),
     commission: Number(commission) || 1.5,
     balance: Number(balance) || 25000,
-    status: 'active',
+    status: (status === 'deactive' || status === 'blocked') ? 'blocked' : 'active',
     usersCount: 0,
     createdAt: new Date().toISOString().slice(0, 10),
   });

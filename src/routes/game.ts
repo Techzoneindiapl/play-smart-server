@@ -14,9 +14,15 @@ router.get('/current/:gameId', (req: Request, res: Response) => {
   return res.json(gameEngine.sanitizeRound(round));
 });
 
+router.get('/history', (req: Request, res: Response) => {
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 200;
+  const history = db.getRoundHistory(undefined, limit);
+  return res.json(history);
+});
+
 router.get('/history/:gameId', (req: Request, res: Response) => {
   const gameId = req.params.gameId as GameId;
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
   const history = db.getRoundHistory(gameId, limit);
   return res.json(history);
 });
