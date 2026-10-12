@@ -21,6 +21,13 @@ router.get('/history/:gameId', (req: Request, res: Response) => {
   return res.json(history);
 });
 
+router.get('/user-history/:username', (req: Request, res: Response) => {
+  const username = String(req.params.username);
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+  const history = db.getUserRoundHistory(username, limit);
+  return res.json(history);
+});
+
 router.post('/bet', (req: Request, res: Response) => {
   const { gameId, username, targetIndex, points } = req.body;
   if (!gameId || targetIndex === undefined || !points || points <= 0) {

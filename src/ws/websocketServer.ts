@@ -156,14 +156,29 @@ export class WsServer {
       }
 
       case 'admin_set_forced_winner': {
-        const { gameId, index, mode, multiplier } = data;
-        gameEngine.setForcedWinner(gameId, index, mode, multiplier);
+        const { gameId, index, mode, multiplier, cardLabel } = data;
+        gameEngine.setForcedWinner(gameId, index !== undefined ? Number(index) : null, mode, multiplier, cardLabel);
         break;
       }
 
       case 'admin_force_lock': {
         const { gameId } = data;
         gameEngine.forceLockAndReveal(gameId);
+        break;
+      }
+
+      case 'admin_set_percentages': {
+        const { lucky_cards_12, lucky_cards_16, lucky12, lucky16, luckyTimer } = data;
+        if (lucky_cards_12 !== undefined || lucky12 !== undefined) {
+          db.setAdminPercentage('lucky12', Number(lucky_cards_12 ?? lucky12));
+        }
+        if (lucky_cards_16 !== undefined || lucky16 !== undefined) {
+          db.setAdminPercentage('lucky16', Number(lucky_cards_16 ?? lucky16));
+        }
+        if (luckyTimer !== undefined) {
+          db.setAdminPercentage('luckyTimer', Number(luckyTimer));
+        }
+        this.broadcastToAdmins('game_percentages_updated', db.getAllAdminPercentages());
         break;
       }
 

@@ -39,6 +39,12 @@ const GAME_CONFIGS: Record<GameId, GameConfigData> = {
 export class GameEngine extends EventEmitter {
   private activeRounds: Map<GameId, Round> = new Map();
   private timers: Map<GameId, NodeJS.Timeout> = new Map();
+  private forcedWinnerOverrides: Map<GameId, {
+    index: number | null;
+    mode: 'fair' | 'player_win' | 'manual';
+    multiplier?: number;
+    cardLabel?: string;
+  }> = new Map();
 
   constructor() {
     super();
@@ -74,6 +80,19 @@ export class GameEngine extends EventEmitter {
     const clientSeed = randomHex(8);
     const id = 'RND-' + Math.random().toString(36).substring(2, 8).toUpperCase();
 
+    const override = this.forcedWinnerOverrides.get(gameId);
+    let initialForcedIndex: number | null = null;
+    let initialForcedMode: 'fair' | 'player_win' | 'manual' = 'fair';
+    const initialCustomMultipliers: Record<number, number> = {};
+
+    if (override && override.index !== null && override.mode !== 'fair') {
+      initialForcedIndex = override.index;
+      initialForcedMode = override.mode;
+      if (override.multiplier) {
+        initialCustomMultipliers[override.index] = override.multiplier;
+      }
+    }
+
     const round: Round = {
       id,
       gameId,
@@ -86,9 +105,9 @@ export class GameEngine extends EventEmitter {
       allocations: [],
       resultIndex: null,
       winningCard: null,
-      forcedWinnerIndex: null,
-      forcedMode: 'fair',
-      customMultipliers: {},
+      forcedWinnerIndex: initialForcedIndex,
+      forcedMode: initialForcedMode,
+      customMultipliers: initialCustomMultipliers,
       createdAt: Date.now(),
     };
 
@@ -152,60 +171,86 @@ export class GameEngine extends EventEmitter {
     const deck = GAME_CONFIGS[gameId].deck;
     const isOverridden = round.forcedWinnerIndex !== null;
     let resultIndex: number;
+    const rtpConfig = db.getRtpConfig();
+    const totalBets = round.allocations.reduce((s, a) => s + a.points, 0);
+    const adminPct = db.getAdminPercentage(gameId); // e.g. 20%
+    const adminHoldAmount = (totalBets * adminPct) / 100;
+    const maxPlayerPayoutPool = Math.max(0, totalBets - adminHoldAmount);
 
     if (isOverridden) {
       resultIndex = round.forcedWinnerIndex!;
-    } else if (round.forcedMode === 'player_win') {
-      // Find card with allocations or highest allocations
-      const cardBets: Record<number, number> = {};
-      round.allocations.forEach(a => {
-        cardBets[a.targetIndex] = (cardBets[a.targetIndex] || 0) + a.points;
-      });
-      const indicesWithBets = Object.keys(cardBets).map(Number);
-      if (indicesWithBets.length > 0) {
-        // Choose card with highest bet
-        indicesWithBets.sort((a, b) => cardBets[b] - cardBets[a]);
-        resultIndex = indicesWithBets[0];
-      } else {
-        resultIndex = computeResultIndex(round.serverSeed, round.clientSeed, round.id, deck.length);
-      }
     } else {
-      resultIndex = computeResultIndex(round.serverSeed, round.clientSeed, round.id, deck.length);
+      // Calculate payout for each card index to strictly enforce admin win percentage
+      const defaultMult = GAME_CONFIGS[gameId].defaultMultiplier;
+      const cardPayouts: { index: number; payout: number }[] = deck.map((c, idx) => {
+        const rankMult = (rtpConfig?.rankMultipliers && rtpConfig.rankMultipliers[c.rank]) || defaultMult;
+        const mult = round.customMultipliers[idx] || rankMult;
+        const cardBetTotal = round.allocations
+          .filter(a => a.targetIndex === idx || a.cardLabel === `${c.label}${c.suit}`)
+          .reduce((sum, a) => sum + a.points, 0);
+        return { index: idx, payout: cardBetTotal * mult };
+      });
+
+      // Filter cards where payout <= maxPlayerPayoutPool
+      const allowedCards = cardPayouts.filter(cp => cp.payout <= maxPlayerPayoutPool);
+      if (allowedCards.length > 0) {
+        // Pick among the allowed cards using provably fair hash
+        const pfIndex = computeResultIndex(round.serverSeed, round.clientSeed, round.id, allowedCards.length);
+        resultIndex = allowedCards[pfIndex].index;
+      } else {
+        // Pick card with minimum payout to protect admin margin as closely as possible
+        cardPayouts.sort((a, b) => a.payout - b.payout);
+        resultIndex = cardPayouts[0].index;
+      }
     }
 
+    const winningCard = deck[resultIndex];
     round.status = 'revealed';
     round.resultIndex = resultIndex;
-    round.winningCard = deck[resultIndex];
+    round.winningCard = winningCard;
     round.revealedAt = Date.now();
 
-    // Settle payouts
+    // Settle payouts with win percentage protection
     const winners: { username: string; points: number; winAmount: number; multiplier: number }[] = [];
     let totalPayout = 0;
-    const rtpConfig = db.getRtpConfig();
 
-    for (const alloc of round.allocations) {
-      if (alloc.targetIndex === resultIndex) {
-        let mult = round.customMultipliers[resultIndex];
-        if (!mult) {
-          const rank = round.winningCard.rank;
-          mult = rtpConfig.rankMultipliers[rank] || GAME_CONFIGS[gameId].defaultMultiplier;
-        }
-        const winAmount = alloc.points * mult;
-        totalPayout += winAmount;
+    const winningAllocs = round.allocations.filter(a =>
+      a.targetIndex === resultIndex || a.cardLabel === `${winningCard.label}${winningCard.suit}`
+    );
+    const totalWinningBets = winningAllocs.reduce((s, a) => s + a.points, 0);
 
-        // Credit real user
-        db.adjustUserBalance(alloc.username, winAmount, `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit})`, 'payout', round.id, gameId);
-
-        winners.push({
-          username: alloc.username,
-          points: alloc.points,
-          winAmount,
-          multiplier: mult,
-        });
-      }
+    let mult = round.customMultipliers[resultIndex];
+    if (!mult) {
+      const rank = winningCard.rank;
+      const rankMult = (rtpConfig?.rankMultipliers && rtpConfig.rankMultipliers[rank]) || GAME_CONFIGS[gameId].defaultMultiplier;
+      mult = rankMult;
     }
 
-    const totalBets = round.allocations.reduce((s, a) => s + a.points, 0);
+    const nominalTotalPayout = totalWinningBets * mult;
+    // Payout pool is capped at maxPlayerPayoutPool so admin always retains their percentage
+    const finalPayoutPool = (totalBets > 0 && nominalTotalPayout > maxPlayerPayoutPool)
+      ? maxPlayerPayoutPool
+      : nominalTotalPayout;
+
+    for (const alloc of winningAllocs) {
+      // If capped, share the maxPlayerPayoutPool proportionally to bet size
+      const winAmount = (nominalTotalPayout > maxPlayerPayoutPool && totalWinningBets > 0)
+        ? Math.round(((alloc.points / totalWinningBets) * finalPayoutPool) * 100) / 100
+        : alloc.points * mult;
+
+      totalPayout += winAmount;
+
+      // Credit real user
+      db.adjustUserBalance(alloc.username, winAmount, `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit})`, 'payout', round.id, gameId);
+
+      winners.push({
+        username: alloc.username,
+        points: alloc.points,
+        winAmount,
+        multiplier: mult,
+      });
+    }
+
     const uniquePlayers = new Set(round.allocations.map(a => a.username)).size;
 
     // Save round to history
@@ -234,6 +279,7 @@ export class GameEngine extends EventEmitter {
       roundId: round.id,
       resultIndex,
       winningCard: round.winningCard,
+      multiplier: mult,
       serverSeed: round.serverSeed,
       serverSeedHash: round.serverSeedHash,
       clientSeed: round.clientSeed,
@@ -243,6 +289,9 @@ export class GameEngine extends EventEmitter {
       winners,
       historyEntry,
     });
+
+    // Clear one-time manual override so subsequent rounds revert to fair unless set again
+    this.forcedWinnerOverrides.delete(gameId);
 
     // Notify winners of their updated balances
     winners.forEach(w => {
@@ -308,6 +357,21 @@ export class GameEngine extends EventEmitter {
 
     round.allocations.push(alloc);
 
+    // Mirror to twin 12-card game (lucky12 <-> luckyTimer) if active
+    const twinId: GameId | null = gameId === 'lucky12' ? 'luckyTimer' : (gameId === 'luckyTimer' ? 'lucky12' : null);
+    if (twinId) {
+      const twinRound = this.activeRounds.get(twinId);
+      if (twinRound && twinRound.status === 'betting') {
+        twinRound.allocations.push({ ...alloc, id: alloc.id + '-twin' });
+        this.emit('new_allocation', {
+          gameId: twinId,
+          roundId: twinRound.id,
+          allocation: alloc,
+          totalRoundPoints: twinRound.allocations.reduce((s, a) => s + a.points, 0),
+        });
+      }
+    }
+
     // Emit live allocation event
     this.emit('new_allocation', {
       gameId,
@@ -331,23 +395,53 @@ export class GameEngine extends EventEmitter {
   }
 
   // Admin controls
-  public setForcedWinner(gameId: GameId, index: number | null, mode: 'fair' | 'player_win' | 'manual' = 'manual', multiplier?: number): void {
-    const round = this.activeRounds.get(gameId);
-    if (!round) return;
+  public setForcedWinner(gameId: GameId, index: number | null, mode: 'fair' | 'player_win' | 'manual' = 'manual', multiplier?: number, cardLabel?: string): void {
+    const targetGameIds: GameId[] = (gameId === 'lucky12' || gameId === 'luckyTimer')
+      ? ['lucky12', 'luckyTimer']
+      : [gameId];
 
-    round.forcedWinnerIndex = index;
-    round.forcedMode = mode;
-    if (index !== null && multiplier) {
-      round.customMultipliers[index] = multiplier;
+    for (const gid of targetGameIds) {
+      const deck = GAME_CONFIGS[gid].deck;
+      let finalIndex = index;
+      if (cardLabel) {
+        const clean = cardLabel.replace(/\s+/g, '').toLowerCase();
+        const found = deck.find(c =>
+          `${c.label}${c.suit}`.toLowerCase() === clean ||
+          `${c.rank}${c.suit}`.toLowerCase() === clean ||
+          `${c.label}_${c.suitName}`.toLowerCase() === clean ||
+          `${c.label}_${c.suit}`.toLowerCase() === clean
+        );
+        if (found) finalIndex = found.index;
+      }
+
+      if (finalIndex !== null && mode !== 'fair') {
+        this.forcedWinnerOverrides.set(gid, {
+          index: finalIndex,
+          mode,
+          multiplier,
+          cardLabel,
+        });
+      } else {
+        this.forcedWinnerOverrides.delete(gid);
+      }
+
+      const round = this.activeRounds.get(gid);
+      if (!round) continue;
+
+      round.forcedWinnerIndex = finalIndex;
+      round.forcedMode = mode;
+      if (finalIndex !== null && multiplier) {
+        round.customMultipliers[finalIndex] = multiplier;
+      }
+
+      this.emit('admin_forced_updated', {
+        gameId: gid,
+        roundId: round.id,
+        forcedWinnerIndex: round.forcedWinnerIndex,
+        forcedMode: round.forcedMode,
+        customMultipliers: round.customMultipliers,
+      });
     }
-
-    this.emit('admin_forced_updated', {
-      gameId,
-      roundId: round.id,
-      forcedWinnerIndex: round.forcedWinnerIndex,
-      forcedMode: round.forcedMode,
-      customMultipliers: round.customMultipliers,
-    });
   }
 
   public forceLockAndReveal(gameId: GameId): void {

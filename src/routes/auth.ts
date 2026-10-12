@@ -55,4 +55,23 @@ router.get('/me', (req: Request, res: Response) => {
   });
 });
 
+router.post('/change-password', (req: Request, res: Response) => {
+  const { username, currentPassword, newPassword } = req.body;
+  if (!username || !newPassword) {
+    return res.status(400).json({ error: 'Username and new password are required' });
+  }
+
+  const user = db.getUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  if (user.password && currentPassword && user.password !== currentPassword) {
+    return res.status(400).json({ error: 'Current password does not match' });
+  }
+
+  db.updateUser(user.id, { password: newPassword });
+  return res.json({ success: true, message: 'Password updated successfully' });
+});
+
 export default router;

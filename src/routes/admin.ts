@@ -193,11 +193,30 @@ router.post('/config/rtp', (req: Request, res: Response) => {
   return res.json(updated);
 });
 
+router.get('/config/game-percentage', (_req: Request, res: Response) => {
+  return res.json(db.getAllAdminPercentages());
+});
+
+router.post('/config/game-percentage', (req: Request, res: Response) => {
+  const { lucky_cards_12, lucky_cards_16, lucky12, lucky16, luckyTimer } = req.body;
+  const p12 = Number(lucky_cards_12 !== undefined ? lucky_cards_12 : (lucky12 !== undefined ? lucky12 : 20));
+  const p16 = Number(lucky_cards_16 !== undefined ? lucky_cards_16 : (lucky16 !== undefined ? lucky16 : 20));
+  const pTimer = Number(luckyTimer !== undefined ? luckyTimer : p12);
+
+  db.setAdminPercentage('lucky12', p12);
+  db.setAdminPercentage('lucky16', p16);
+  db.setAdminPercentage('luckyTimer', pTimer);
+
+  const all = db.getAllAdminPercentages();
+  wsServer.broadcastToAdmins('game_percentages_updated', all);
+  return res.json({ success: true, percentages: all });
+});
+
 // ---- Live Game Control ----
 router.post('/game/force', (req: Request, res: Response) => {
-  const { gameId, index, mode, multiplier } = req.body;
-  gameEngine.setForcedWinner(gameId as GameId, index, mode, multiplier);
-  return res.json({ success: true, gameId, index, mode, multiplier });
+  const { gameId, index, mode, multiplier, cardLabel } = req.body;
+  gameEngine.setForcedWinner(gameId as GameId, index !== undefined ? Number(index) : null, mode, multiplier, cardLabel);
+  return res.json({ success: true, gameId, index, mode, multiplier, cardLabel });
 });
 
 router.post('/game/force-lock', (req: Request, res: Response) => {

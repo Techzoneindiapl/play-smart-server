@@ -18,6 +18,7 @@ export interface DatabaseSchema {
   transactions: WalletTransaction[];
   roundHistory: RoundHistoryEntry[];
   rtpConfig: RtpConfig;
+  adminPercentages?: Record<string, number>;
 }
 
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -31,6 +32,7 @@ const INITIAL_DB: DatabaseSchema = {
   distributers: [],
   transactions: [],
   roundHistory: [],
+  adminPercentages: { lucky12: 20, lucky16: 20, luckyTimer: 20 },
   rtpConfig: {
     houseMargin: 13.6,
     playerRtp: 86.4,
@@ -58,7 +60,18 @@ class Database {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
-        this.data = { ...INITIAL_DB, ...parsed };
+        this.data = {
+          ...INITIAL_DB,
+          ...parsed,
+          rtpConfig: {
+            ...INITIAL_DB.rtpConfig,
+            ...(parsed.rtpConfig || {}),
+            rankMultipliers: {
+              ...INITIAL_DB.rtpConfig.rankMultipliers,
+              ...((parsed.rtpConfig && parsed.rtpConfig.rankMultipliers) || {}),
+            },
+          },
+        };
       } catch (err) {
         console.error('Failed reading DB file, using initial data');
       }
@@ -363,6 +376,12 @@ class Database {
 
   // ---- RTP Config ----
   public getRtpConfig(): RtpConfig {
+    if (!this.data.rtpConfig) {
+      this.data.rtpConfig = { ...INITIAL_DB.rtpConfig };
+    }
+    if (!this.data.rtpConfig.rankMultipliers) {
+      this.data.rtpConfig.rankMultipliers = { J: 10, Q: 10, K: 10, A: 12 };
+    }
     return this.data.rtpConfig;
   }
 
@@ -373,6 +392,59 @@ class Database {
       RtpConfigModel.updateOne({ key: 'global' }, { $set: { config: this.data.rtpConfig } }, { upsert: true }).catch(err => console.error('Mongo update RTP error:', err));
     }
     return this.data.rtpConfig;
+  }
+
+  // ---- Game Admin Percentage ----
+  public getAdminPercentage(gameId: string): number {
+    if (!this.data.adminPercentages) {
+      this.data.adminPercentages = { lucky12: 20, lucky16: 20, luckyTimer: 20 };
+    }
+    const val = this.data.adminPercentages[gameId];
+    return typeof val === 'number' ? val : 20;
+  }
+
+  public setAdminPercentage(gameId: string, percentage: number): void {
+    if (!this.data.adminPercentages) {
+      this.data.adminPercentages = { lucky12: 20, lucky16: 20, luckyTimer: 20 };
+    }
+    const clamped = Math.max(0, Math.min(100, Number(percentage) || 20));
+    this.data.adminPercentages[gameId] = clamped;
+    // Keep lucky12 and luckyTimer in sync
+    if (gameId === 'lucky12') this.data.adminPercentages.luckyTimer = clamped;
+    if (gameId === 'luckyTimer') this.data.adminPercentages.lucky12 = clamped;
+    this.save();
+    if (this.isMongoConnected) {
+      RtpConfigModel.updateOne({ key: 'percentages' }, { $set: { config: this.data.adminPercentages as any } }, { upsert: true }).catch(err => console.error('Mongo update percentages error:', err));
+    }
+  }
+
+  public getAllAdminPercentages(): Record<string, number> {
+    if (!this.data.adminPercentages) {
+      this.data.adminPercentages = { lucky12: 20, lucky16: 20, luckyTimer: 20 };
+    }
+    return { ...this.data.adminPercentages };
+  }
+
+  // ---- User Round History for Player App Reports ----
+  public getUserRoundHistory(username: string, limit: number = 50): any[] {
+    const all = [...this.data.roundHistory].reverse();
+    const userRounds = all.filter(r => (r.allocations || []).some(a => a.username === username));
+    return userRounds.slice(0, limit).map(r => {
+      const userAllocs = (r.allocations || []).filter(a => a.username === username);
+      const userBet = userAllocs.reduce((s, a) => s + (a.points || 0), 0);
+      const userWins = (r.winners || []).filter(w => w.username === username);
+      const userWon = userWins.reduce((s, w) => s + (w.winAmount || 0), 0);
+      return {
+        id: r.id,
+        roundId: r.roundId,
+        gameId: r.gameId,
+        time: r.time,
+        winningCard: r.winningCard,
+        bet: userBet,
+        win: userWon,
+        net: userWon - userBet,
+      };
+    });
   }
 }
 
