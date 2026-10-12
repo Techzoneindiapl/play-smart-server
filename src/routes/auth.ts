@@ -4,30 +4,48 @@ import { db } from '../store/db';
 const router = Router();
 
 router.post('/login', (req: Request, res: Response) => {
-  const name = req.body.name || req.body.username;
+  const rawName = (req.body.name || req.body.username || '').toString().trim();
   const password = req.body.password;
 
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Username is required' });
+  if (!rawName) {
+    return res.status(400).json({ error: 'Username or email is required' });
   }
 
-  let user = db.getUserByUsername(name.trim());
+  const lookupName = rawName.toLowerCase() === 'admin@gmail.com' ? 'admin' : rawName;
+  let user = db.getUserByUsername(lookupName);
   if (!user) {
-    // If not found, create as new player with initial balance for smooth demo onboarding
-    user = db.addUser({
-      id: 'usr-' + Math.random().toString(36).substring(2, 9),
-      username: name.trim(),
-      name: name.trim(),
-      password: password || '123',
-      role: 'user',
-      balance: 10000,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    });
+    if (lookupName === 'admin') {
+      user = db.addUser({
+        id: 'admin-001',
+        username: 'admin',
+        name: 'Administrator',
+        password: 'admin',
+        role: 'admin',
+        balance: 1000000,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      // If not found, create as new player with initial balance for smooth demo onboarding
+      user = db.addUser({
+        id: 'usr-' + Math.random().toString(36).substring(2, 9),
+        username: lookupName,
+        name: lookupName,
+        password: password || '123',
+        role: 'user',
+        balance: 10000,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      });
+    }
   }
 
   if (user.status === 'blocked') {
     return res.status(403).json({ error: 'Account is blocked by administrator' });
+  }
+
+  if (user.password && password && user.password !== password) {
+    return res.status(401).json({ error: 'Invalid password' });
   }
 
   return res.json({
@@ -41,8 +59,9 @@ router.post('/login', (req: Request, res: Response) => {
 });
 
 router.get('/me', (req: Request, res: Response) => {
-  const username = (req.query.username as string) || 'demo';
-  const user = db.getUserByUsername(username);
+  const username = ((req.query.username as string) || 'demo').trim();
+  const lookupName = username.toLowerCase() === 'admin@gmail.com' ? 'admin' : username;
+  const user = db.getUserByUsername(lookupName);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
@@ -61,7 +80,8 @@ router.post('/change-password', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Username and new password are required' });
   }
 
-  const user = db.getUserByUsername(username);
+  const lookupName = (username.trim().toLowerCase() === 'admin@gmail.com') ? 'admin' : username.trim();
+  const user = db.getUserByUsername(lookupName);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
