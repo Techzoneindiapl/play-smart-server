@@ -45,11 +45,29 @@ router.post('/users', (req: Request, res: Response) => {
   return res.json(newUser);
 });
 
+router.put('/users/:id', (req: Request, res: Response) => {
+  const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const updates = req.body;
+  const user = db.getUserById(userId) || db.getUserByUsername(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const updated = db.updateUser(user.id, updates);
+  return res.json(updated);
+});
+
+router.delete('/users/:id', (req: Request, res: Response) => {
+  const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ok = db.deleteUser(userId);
+  if (!ok) return res.status(404).json({ error: 'User not found' });
+  return res.json({ success: true, id: userId });
+});
+
 router.post('/users/:id/status', (req: Request, res: Response) => {
   const { status } = req.body;
   const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const updated = db.updateUser(userId, { status });
-  if (!updated) return res.status(404).json({ error: 'User not found' });
+  const user = db.getUserById(userId) || db.getUserByUsername(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const newStatus = status || (user.status === 'active' ? 'blocked' : 'active');
+  const updated = db.updateUser(user.id, { status: newStatus });
   return res.json(updated);
 });
 
@@ -105,6 +123,30 @@ router.post('/superdistributers', (req: Request, res: Response) => {
   return res.json(sd);
 });
 
+router.put('/superdistributers/:id', (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const sd = db.getSuperDistributers().find(s => s.id === id || s.code === id || s.name === id);
+  if (!sd) return res.status(404).json({ error: 'Super Distributor not found' });
+  const updated = db.updateSuperDistributer(sd.id, req.body);
+  return res.json(updated);
+});
+
+router.delete('/superdistributers/:id', (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ok = db.deleteSuperDistributer(id);
+  if (!ok) return res.status(404).json({ error: 'Super Distributor not found' });
+  return res.json({ success: true, id });
+});
+
+router.post('/superdistributers/:id/status', (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const sd = db.getSuperDistributers().find(s => s.id === id || s.code === id || s.name === id);
+  if (!sd) return res.status(404).json({ error: 'Super Distributor not found' });
+  const newStatus = req.body.status || (sd.status === 'active' ? 'blocked' : 'active');
+  const updated = db.updateSuperDistributer(sd.id, { status: newStatus });
+  return res.json(updated);
+});
+
 router.get('/distributers', (_req: Request, res: Response) => {
   return res.json(db.getDistributers());
 });
@@ -124,6 +166,66 @@ router.post('/distributers', (req: Request, res: Response) => {
     createdAt: new Date().toISOString().slice(0, 10),
   });
   return res.json(dist);
+});
+
+router.put('/distributers/:id', (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const dist = db.getDistributers().find(d => d.id === id || d.code === id || d.name === id);
+  if (!dist) return res.status(404).json({ error: 'Distributor not found' });
+  const updated = db.updateDistributer(dist.id, req.body);
+  return res.json(updated);
+});
+
+router.delete('/distributers/:id', (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const ok = db.deleteDistributer(id);
+  if (!ok) return res.status(404).json({ error: 'Distributor not found' });
+  return res.json({ success: true, id });
+});
+
+router.post('/distributers/:id/status', (req: Request, res: Response) => {
+  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const dist = db.getDistributers().find(d => d.id === id || d.code === id || d.name === id);
+  if (!dist) return res.status(404).json({ error: 'Distributor not found' });
+  const newStatus = req.body.status || (dist.status === 'active' ? 'blocked' : 'active');
+  const updated = db.updateDistributer(dist.id, { status: newStatus });
+  return res.json(updated);
+});
+
+// Unified Credit Adjust & Transfer
+router.post('/credit/adjust', (req: Request, res: Response) => {
+  const { entityType, id, delta, description, type } = req.body;
+  const amount = Number(delta);
+  if (!entityType || !id || isNaN(amount)) {
+    return res.status(400).json({ error: 'entityType, id, and numeric delta are required' });
+  }
+
+  if (entityType === 'user') {
+    const user = db.getUserById(id) || db.getUserByUsername(id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const result = db.adjustUserBalance(
+      user.username,
+      amount,
+      description || (amount >= 0 ? 'Credit Transfer' : 'Credit Adjustment'),
+      type || (amount >= 0 ? 'credit' : 'withdrawal')
+    );
+    if (!result) return res.status(404).json({ error: 'User not found' });
+    wsServer.sendToUser(user.username, 'balance_updated', {
+      username: user.username,
+      balance: result.user.balance,
+    });
+    return res.json({ success: true, entity: result.user, newBalance: result.user.balance, tx: result.tx });
+  } else if (entityType === 'distributer') {
+    const updated = db.adjustDistributerBalance(id, amount);
+    if (!updated) return res.status(404).json({ error: 'Distributor not found' });
+    return res.json({ success: true, entity: updated, newBalance: updated.balance });
+  } else if (entityType === 'superdistributer') {
+    const updated = db.adjustSuperDistributerBalance(id, amount);
+    if (!updated) return res.status(404).json({ error: 'Super Distributor not found' });
+    return res.json({ success: true, entity: updated, newBalance: updated.balance });
+  }
+
+  return res.status(400).json({ error: 'Invalid entityType' });
 });
 
 // ---- Reports ----

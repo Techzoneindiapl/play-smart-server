@@ -345,6 +345,61 @@ class Database {
     return dist;
   }
 
+  public deleteUser(idOrUsername: string): boolean {
+    const idx = this.data.users.findIndex(u => u.id === idOrUsername || u.username === idOrUsername);
+    if (idx === -1) return false;
+    const [removed] = this.data.users.splice(idx, 1);
+    this.save();
+    if (this.isMongoConnected) {
+      UserModel.deleteOne({ id: removed.id }).catch(err => console.error('Mongo deleteUser error:', err));
+    }
+    return true;
+  }
+
+  public deleteDistributer(idOrCodeOrName: string): boolean {
+    const idx = this.data.distributers.findIndex(d => d.id === idOrCodeOrName || d.code === idOrCodeOrName || d.name === idOrCodeOrName);
+    if (idx === -1) return false;
+    const [removed] = this.data.distributers.splice(idx, 1);
+    this.save();
+    if (this.isMongoConnected) {
+      DistributerModel.deleteOne({ id: removed.id }).catch(err => console.error('Mongo deleteDist error:', err));
+    }
+    return true;
+  }
+
+  public deleteSuperDistributer(idOrCodeOrName: string): boolean {
+    const idx = this.data.superdistributers.findIndex(s => s.id === idOrCodeOrName || s.code === idOrCodeOrName || s.name === idOrCodeOrName);
+    if (idx === -1) return false;
+    const [removed] = this.data.superdistributers.splice(idx, 1);
+    this.save();
+    if (this.isMongoConnected) {
+      SuperDistributerModel.deleteOne({ id: removed.id }).catch(err => console.error('Mongo deleteSD error:', err));
+    }
+    return true;
+  }
+
+  public adjustDistributerBalance(idOrCodeOrName: string, delta: number): Distributer | undefined {
+    const dist = this.data.distributers.find(d => d.id === idOrCodeOrName || d.code === idOrCodeOrName || d.name === idOrCodeOrName);
+    if (!dist) return undefined;
+    dist.balance = Math.max(0, Math.round(((dist.balance || 0) + delta) * 100) / 100);
+    this.save();
+    if (this.isMongoConnected) {
+      DistributerModel.updateOne({ id: dist.id }, { $set: { balance: dist.balance } }).catch(err => console.error('Mongo update Dist balance:', err));
+    }
+    return dist;
+  }
+
+  public adjustSuperDistributerBalance(idOrCodeOrName: string, delta: number): SuperDistributer | undefined {
+    const sd = this.data.superdistributers.find(s => s.id === idOrCodeOrName || s.code === idOrCodeOrName || s.name === idOrCodeOrName);
+    if (!sd) return undefined;
+    sd.balance = Math.max(0, Math.round(((sd.balance || 0) + delta) * 100) / 100);
+    this.save();
+    if (this.isMongoConnected) {
+      SuperDistributerModel.updateOne({ id: sd.id }, { $set: { balance: sd.balance } }).catch(err => console.error('Mongo update SD balance:', err));
+    }
+    return sd;
+  }
+
   // ---- Transactions ----
   public getTransactions(limit = 100, filterUsername?: string): WalletTransaction[] {
     let list = this.data.transactions;
