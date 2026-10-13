@@ -165,6 +165,16 @@ router.post('/distributers', (req: Request, res: Response) => {
     usersCount: 0,
     createdAt: new Date().toISOString().slice(0, 10),
   });
+  db.addUser({
+    id: dist.id,
+    username: dist.name,
+    name: dist.name,
+    password: req.body.password || '123',
+    role: 'distributer',
+    balance: dist.balance,
+    status: dist.status,
+    createdAt: dist.createdAt,
+  });
   return res.json(dist);
 });
 

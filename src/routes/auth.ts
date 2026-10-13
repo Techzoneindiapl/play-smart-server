@@ -25,18 +25,47 @@ router.post('/login', (req: Request, res: Response) => {
         status: 'active',
         createdAt: new Date().toISOString(),
       });
-    } else {
-      // If not found, create as new player with initial balance for smooth demo onboarding
+    } else if (lookupName.toLowerCase() === 'distributor' || lookupName.toLowerCase() === 'distributer') {
       user = db.addUser({
-        id: 'usr-' + Math.random().toString(36).substring(2, 9),
+        id: 'dist-001',
         username: lookupName,
-        name: lookupName,
-        password: password || '123',
-        role: 'user',
-        balance: 10000,
+        name: 'Distributor Demo',
+        password: password || 'distributor',
+        role: 'distributer',
+        balance: 50000,
         status: 'active',
         createdAt: new Date().toISOString(),
       });
+    } else {
+      const dist = db.getDistributers().find(d => 
+        (d.name && d.name.toLowerCase() === lookupName.toLowerCase()) || 
+        (d.code && d.code.toLowerCase() === lookupName.toLowerCase()) || 
+        d.id.toLowerCase() === lookupName.toLowerCase()
+      );
+      if (dist) {
+        user = db.addUser({
+          id: dist.id,
+          username: dist.name || lookupName,
+          name: dist.name,
+          password: password || '123',
+          role: 'distributer',
+          balance: dist.balance,
+          status: dist.status,
+          createdAt: dist.createdAt,
+        });
+      } else {
+        // If not found, create as new player with initial balance for smooth demo onboarding
+        user = db.addUser({
+          id: 'usr-' + Math.random().toString(36).substring(2, 9),
+          username: lookupName,
+          name: lookupName,
+          password: password || '123',
+          role: 'user',
+          balance: 10000,
+          status: 'active',
+          createdAt: new Date().toISOString(),
+        });
+      }
     }
   }
 
