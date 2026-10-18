@@ -79,7 +79,7 @@ export interface WalletTransaction {
   id: string;
   userId: string;
   username: string;
-  type: 'bet' | 'win' | 'refund' | 'credit' | 'payout' | 'deposit' | 'withdrawal';
+  type: 'bet' | 'win' | 'refund' | 'credit' | 'payout' | 'deposit' | 'withdrawal' | 'commission';
   amount: number;
   description: string;
   time: string;

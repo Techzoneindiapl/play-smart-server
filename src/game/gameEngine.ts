@@ -210,44 +210,73 @@ export class GameEngine extends EventEmitter {
     round.winningCard = winningCard;
     round.revealedAt = Date.now();
 
-    // Settle payouts with win percentage protection
-    const winners: { username: string; points: number; winAmount: number; multiplier: number }[] = [];
+    // Settle payouts with admin multiplier and win percentage cut
+    const winners: {
+      username: string;
+      points: number;
+      winAmount: number;
+      grossWin?: number;
+      adminCut?: number;
+      multiplier: number;
+      multiplierFactor?: number;
+    }[] = [];
     let totalPayout = 0;
 
     const winningAllocs = round.allocations.filter(a =>
       a.targetIndex === resultIndex || a.cardLabel === `${winningCard.label}${winningCard.suit}`
     );
-    const totalWinningBets = winningAllocs.reduce((s, a) => s + a.points, 0);
 
-    let mult = round.customMultipliers[resultIndex];
-    if (!mult) {
-      const rank = winningCard.rank;
-      const rankMult = (rtpConfig?.rankMultipliers && rtpConfig.rankMultipliers[rank]) || GAME_CONFIGS[gameId].defaultMultiplier;
-      mult = rankMult;
-    }
-
-    const nominalTotalPayout = totalWinningBets * mult;
-    // Payout pool is capped at maxPlayerPayoutPool so admin always retains their percentage
-    const finalPayoutPool = (totalBets > 0 && nominalTotalPayout > maxPlayerPayoutPool)
-      ? maxPlayerPayoutPool
-      : nominalTotalPayout;
+    // Multiplier calculation:
+    // Base multiplier (e.g. 10 for Lucky 12, 12 for Lucky 16, or rank-specific)
+    const baseMult = (rtpConfig?.rankMultipliers && rtpConfig.rankMultipliers[winningCard.rank]) || GAME_CONFIGS[gameId].defaultMultiplier;
+    // Admin selected winning X from live results dropdown (1 to 21, default 1)
+    const multFactor = round.customMultipliers[resultIndex] || 1;
+    // Total gross multiplier = baseMult * multFactor (e.g., 1x => 10, 2x => 20, 21x => 210)
+    const grossMultiplier = baseMult * multFactor;
 
     for (const alloc of winningAllocs) {
-      // If capped, share the maxPlayerPayoutPool proportionally to bet size
-      const winAmount = (nominalTotalPayout > maxPlayerPayoutPool && totalWinningBets > 0)
-        ? Math.round(((alloc.points / totalWinningBets) * finalPayoutPool) * 100) / 100
-        : alloc.points * mult;
+      const grossWinAmount = alloc.points * grossMultiplier;
 
-      totalPayout += winAmount;
+      // Admin percentage cut (set via Admin Percentage in Admin Panel, e.g. 20%)
+      const adminCut = adminPct > 0
+        ? Math.round(((grossWinAmount * adminPct) / 100) * 100) / 100
+        : 0;
 
-      // Credit real user
-      db.adjustUserBalance(alloc.username, winAmount, `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit})`, 'payout', round.id, gameId);
+      // The remaining net amount after admin percentage is deducted
+      const netWinAmount = Math.max(0, Math.round((grossWinAmount - adminCut) * 100) / 100);
+
+      totalPayout += netWinAmount;
+
+      // 1. Save / transfer the admin percentage amount to the admin account
+      if (adminCut > 0) {
+        db.adjustUserBalance(
+          'admin',
+          adminCut,
+          `Admin win commission (${adminPct}%) on ${alloc.username} win in ${gameId} round ${round.id}`,
+          'commission',
+          round.id,
+          gameId
+        );
+      }
+
+      // 2. Credit the remaining net amount to the winner
+      db.adjustUserBalance(
+        alloc.username,
+        netWinAmount,
+        `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit}) [${multFactor}x, less ${adminPct}% admin cut]`,
+        'payout',
+        round.id,
+        gameId
+      );
 
       winners.push({
         username: alloc.username,
         points: alloc.points,
-        winAmount,
-        multiplier: mult,
+        winAmount: netWinAmount,
+        grossWin: grossWinAmount,
+        adminCut,
+        multiplier: multFactor,
+        multiplierFactor: multFactor,
       });
     }
 
@@ -279,7 +308,9 @@ export class GameEngine extends EventEmitter {
       roundId: round.id,
       resultIndex,
       winningCard: round.winningCard,
-      multiplier: mult,
+      multiplier: grossMultiplier,
+      multiplierFactor: multFactor,
+      adminPercentage: adminPct,
       serverSeed: round.serverSeed,
       serverSeedHash: round.serverSeedHash,
       clientSeed: round.clientSeed,
@@ -293,7 +324,7 @@ export class GameEngine extends EventEmitter {
     // Clear one-time manual override so subsequent rounds revert to fair unless set again
     this.forcedWinnerOverrides.delete(gameId);
 
-    // Notify winners of their updated balances
+    // Notify winners and admin of updated balances
     winners.forEach(w => {
       const u = db.getUserByUsername(w.username);
       if (u) {
@@ -304,10 +335,19 @@ export class GameEngine extends EventEmitter {
       }
     });
 
-    // Wait 5 seconds after reveal, then start next round
+    const adminUser = db.getUserByUsername('admin');
+    if (adminUser) {
+      this.emit('user_balance_updated', {
+        username: 'admin',
+        balance: adminUser.balance,
+      });
+    }
+
+    // Wait for the wheel to completely stop (10s animation + 1s settle time),
+    // then start next round so timer starts only after wheel has completely stopped.
     const nextRoundTimer = setTimeout(() => {
       this.startNewRound(gameId);
-    }, 5500);
+    }, 11000);
     this.timers.set(gameId, nextRoundTimer);
   }
 
