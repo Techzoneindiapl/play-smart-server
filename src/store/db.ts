@@ -494,17 +494,17 @@ class Database {
 
   // ---- Live Game Balance ----
   public getLiveGameBalance(gameId: string): LiveGameBalance {
+    const targetId = gameId === 'luckyTimer' ? 'lucky12' : gameId;
     if (!this.data.liveGameBalances) {
       this.data.liveGameBalances = {
         lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
         lucky16: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
-        luckyTimer: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
       };
     }
-    if (!this.data.liveGameBalances[gameId]) {
-      this.data.liveGameBalances[gameId] = { gameBalance: 0, totalCollection: 0, totalPayment: 0 };
+    if (!this.data.liveGameBalances[targetId]) {
+      this.data.liveGameBalances[targetId] = { gameBalance: 0, totalCollection: 0, totalPayment: 0 };
     }
-    return { ...this.data.liveGameBalances[gameId] };
+    return { ...this.data.liveGameBalances[targetId] };
   }
 
   public getAllLiveGameBalances(): Record<string, LiveGameBalance> {
@@ -512,61 +512,52 @@ class Database {
       this.data.liveGameBalances = {
         lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
         lucky16: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
-        luckyTimer: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
       };
     }
-    return JSON.parse(JSON.stringify(this.data.liveGameBalances));
+    const b12 = this.getLiveGameBalance('lucky12');
+    const b16 = this.getLiveGameBalance('lucky16');
+    return {
+      lucky12: { ...b12 },
+      lucky16: { ...b16 },
+      luckyTimer: { ...b12 },
+    };
   }
 
   public addBetToGameBalance(gameId: string, betPoints: number, adminPct: number): LiveGameBalance {
-    const cur = this.getLiveGameBalance(gameId);
+    const targetId = gameId === 'luckyTimer' ? 'lucky12' : gameId;
+    const cur = this.getLiveGameBalance(targetId);
     // Deduct win percentage cut from bet points
-    // Example: 20 points bet with 10% win percentage => 2 points deducted, 18 added to gameBalance
+    // Example: 2 players bet 10 points each (total 20 points). With 10% win percentage:
+    // 2 points are deducted, 18 added to gameBalance
     const deduction = (betPoints * adminPct) / 100;
     const netPoints = betPoints - deduction;
     cur.gameBalance = Math.round((cur.gameBalance + netPoints) * 100) / 100;
 
-    this.data.liveGameBalances![gameId] = cur;
-    if (gameId === 'lucky12' && this.data.liveGameBalances!.luckyTimer) {
-      this.data.liveGameBalances!.luckyTimer = { ...cur };
-    }
-    if (gameId === 'luckyTimer' && this.data.liveGameBalances!.lucky12) {
-      this.data.liveGameBalances!.lucky12 = { ...cur };
-    }
+    this.data.liveGameBalances![targetId] = cur;
     this.save();
     return cur;
   }
 
   public addPayoutToGameBalance(gameId: string, payoutPoints: number): LiveGameBalance {
-    const cur = this.getLiveGameBalance(gameId);
+    const targetId = gameId === 'luckyTimer' ? 'lucky12' : gameId;
+    const cur = this.getLiveGameBalance(targetId);
     // Winners points are deducted from TOTAL Game Balance, and added to TOTAL PAYMENT
     cur.gameBalance = Math.round((cur.gameBalance - payoutPoints) * 100) / 100;
     cur.totalPayment = Math.round((cur.totalPayment + payoutPoints) * 100) / 100;
 
-    this.data.liveGameBalances![gameId] = cur;
-    if (gameId === 'lucky12' && this.data.liveGameBalances!.luckyTimer) {
-      this.data.liveGameBalances!.luckyTimer = { ...cur };
-    }
-    if (gameId === 'luckyTimer' && this.data.liveGameBalances!.lucky12) {
-      this.data.liveGameBalances!.lucky12 = { ...cur };
-    }
+    this.data.liveGameBalances![targetId] = cur;
     this.save();
     return cur;
   }
 
   public resetGameBalance(gameId: string): LiveGameBalance {
-    const cur = this.getLiveGameBalance(gameId);
+    const targetId = gameId === 'luckyTimer' ? 'lucky12' : gameId;
+    const cur = this.getLiveGameBalance(targetId);
     // TOTAL COLLECTION is updated when Reset button triggered: TOTAL Game Balance is added into TOTAL COLLECTION
     cur.totalCollection = Math.round((cur.totalCollection + cur.gameBalance) * 100) / 100;
     cur.gameBalance = 0;
 
-    this.data.liveGameBalances![gameId] = cur;
-    if (gameId === 'lucky12' && this.data.liveGameBalances!.luckyTimer) {
-      this.data.liveGameBalances!.luckyTimer = { ...cur };
-    }
-    if (gameId === 'luckyTimer' && this.data.liveGameBalances!.lucky12) {
-      this.data.liveGameBalances!.lucky12 = { ...cur };
-    }
+    this.data.liveGameBalances![targetId] = cur;
     this.save();
     return cur;
   }

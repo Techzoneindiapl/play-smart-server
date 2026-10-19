@@ -235,35 +235,16 @@ export class GameEngine extends EventEmitter {
     const grossMultiplier = baseMult * multFactor;
 
     for (const alloc of winningAllocs) {
-      const grossWinAmount = alloc.points * grossMultiplier;
+      if (alloc.id.endsWith('-twin')) continue;
 
-      // Admin percentage cut (set via Admin Percentage in Admin Panel, e.g. 20%)
-      const adminCut = adminPct > 0
-        ? Math.round(((grossWinAmount * adminPct) / 100) * 100) / 100
-        : 0;
+      const winAmount = alloc.points * grossMultiplier;
+      totalPayout += winAmount;
 
-      // The remaining net amount after admin percentage is deducted
-      const netWinAmount = Math.max(0, Math.round((grossWinAmount - adminCut) * 100) / 100);
-
-      totalPayout += netWinAmount;
-
-      // 1. Save / transfer the admin percentage amount to the admin account
-      if (adminCut > 0) {
-        db.adjustUserBalance(
-          'admin',
-          adminCut,
-          `Admin win commission (${adminPct}%) on ${alloc.username} win in ${gameId} round ${round.id}`,
-          'commission',
-          round.id,
-          gameId
-        );
-      }
-
-      // 2. Credit the remaining net amount to the winner
+      // Credit the full winning amount to the winner (NO deduction for player)
       db.adjustUserBalance(
         alloc.username,
-        netWinAmount,
-        `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit}) [${multFactor}x, less ${adminPct}% admin cut]`,
+        winAmount,
+        `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit}) [${multFactor}x]`,
         'payout',
         round.id,
         gameId
@@ -272,9 +253,8 @@ export class GameEngine extends EventEmitter {
       winners.push({
         username: alloc.username,
         points: alloc.points,
-        winAmount: netWinAmount,
-        grossWin: grossWinAmount,
-        adminCut,
+        winAmount,
+        grossWin: winAmount,
         multiplier: multFactor,
         multiplierFactor: multFactor,
       });
@@ -303,7 +283,8 @@ export class GameEngine extends EventEmitter {
     db.addRoundHistory(historyEntry);
 
     // Deduct winner payouts from TOTAL Game Balance and add to TOTAL PAYMENT
-    if (totalPayout > 0) {
+    // Only update for primary games ('lucky12' or 'lucky16'), not twin mirrors ('luckyTimer')
+    if (gameId !== 'luckyTimer' && totalPayout > 0) {
       const updatedBal = db.addPayoutToGameBalance(gameId, totalPayout);
       this.emit('live_balance_updated', {
         gameId,
@@ -431,13 +412,16 @@ export class GameEngine extends EventEmitter {
     });
 
     // Update live game balance: total betted points minus admin win percentage
-    const adminPct = db.getAdminPercentage(gameId);
-    const updatedBal = db.addBetToGameBalance(gameId, points, adminPct);
-    this.emit('live_balance_updated', {
-      gameId,
-      liveBalance: updatedBal,
-      allBalances: db.getAllLiveGameBalances(),
-    });
+    // Only update for primary games ('lucky12' or 'lucky16'), not twin mirrors ('luckyTimer')
+    if (gameId !== 'luckyTimer') {
+      const adminPct = db.getAdminPercentage(gameId);
+      const updatedBal = db.addBetToGameBalance(gameId, points, adminPct);
+      this.emit('live_balance_updated', {
+        gameId,
+        liveBalance: updatedBal,
+        allBalances: db.getAllLiveGameBalances(),
+      });
+    }
 
     if (!isBot) {
       const updatedUser = db.getUserByUsername(username);
