@@ -277,6 +277,8 @@ export class GameEngine extends EventEmitter {
       playerCount: uniquePlayers,
       allocations: [...round.allocations],
       winners,
+      multiplier: multFactor,
+      multiplierFactor: multFactor,
       isOverridden,
       time: new Date().toISOString(),
     };

@@ -101,6 +101,8 @@ export interface RoundHistoryEntry {
   totalPayouts: number;
   playerCount: number;
   isOverridden: boolean;
+  multiplier?: number;
+  multiplierFactor?: number;
   time: string;
   allocations?: Allocation[];
   winners?: { username: string; points: number; winAmount: number; multiplier: number }[];
