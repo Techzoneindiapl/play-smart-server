@@ -8,7 +8,7 @@
       "role": "admin",
       "balance": 1000000,
       "status": "active",
-      "createdAt": "2026-10-19T12:25:05.090Z"
+      "createdAt": "2026-10-19T12:50:24.794Z"
     }
   ],
   "superdistributers": [],
@@ -16,20 +16,46 @@
   "transactions": [],
   "roundHistory": [
     {
-      "id": "HIST-RND-JU69EB",
-      "roundId": "RND-JU69EB",
+      "id": "HIST-RND-6R2DXH",
+      "roundId": "RND-6R2DXH",
       "gameId": "luckyTimer",
-      "serverSeed": "14b3abb1980730ff5042dc9bc5b24575065b2bd0276bb76b",
-      "serverSeedHash": "49e0f9b488deeea2f87d90d44dff62e24038ea44b6f5fb9b6af0d1b9347793c9",
-      "clientSeed": "fb05a77e3aac10f0",
-      "resultIndex": 6,
+      "serverSeed": "291ee474f0bde209b9c0adade2d7a3e5c5df877a9c377b09",
+      "serverSeedHash": "c86f978902b2fe2d94da99dc5b35918cf8bd02db942e60bd31ffdf1a38e02a33",
+      "clientSeed": "8b39711c2969cd41",
+      "resultIndex": 5,
       "winningCard": {
         "label": "Q",
-        "suit": "♦",
+        "suit": "♠",
         "rank": "Q",
+        "red": false,
+        "suitName": "Spades",
+        "index": 5
+      },
+      "totalBets": 0,
+      "totalPayouts": 0,
+      "playerCount": 0,
+      "allocations": [],
+      "winners": [],
+      "multiplier": 1,
+      "multiplierFactor": 1,
+      "isOverridden": false,
+      "time": "2026-10-19T12:51:25.042Z"
+    },
+    {
+      "id": "HIST-RND-Y29UD3",
+      "roundId": "RND-Y29UD3",
+      "gameId": "lucky16",
+      "serverSeed": "d3c0e552f3a2d52a6342a33b6936a7e3af4e1d14daba2a8d",
+      "serverSeedHash": "de87496da24942c4a960152bd683a20b39054b4ba1c193e07273b6d66aff2746",
+      "clientSeed": "2088dfb7b401ce06",
+      "resultIndex": 2,
+      "winningCard": {
+        "label": "A",
+        "suit": "♦",
+        "rank": "A",
         "red": true,
         "suitName": "Diamonds",
-        "index": 6
+        "index": 2
       },
       "totalBets": 0,
       "totalPayouts": 0,
@@ -39,49 +65,23 @@
       "multiplier": 1,
       "multiplierFactor": 1,
       "isOverridden": false,
-      "time": "2026-10-19T12:25:45.585Z"
+      "time": "2026-10-19T12:51:25.042Z"
     },
     {
-      "id": "HIST-RND-VE86U1",
-      "roundId": "RND-VE86U1",
-      "gameId": "lucky16",
-      "serverSeed": "8f4b17d4c5fae0856ca536b473907a36de8c148ea6d20eb0",
-      "serverSeedHash": "1ba0ba4f46b629a5a09dc28b6a624f3da4505580132be6d7604c1ffdede7e940",
-      "clientSeed": "91490a8aba3690d6",
-      "resultIndex": 5,
-      "winningCard": {
-        "label": "K",
-        "suit": "♠",
-        "rank": "K",
-        "red": false,
-        "suitName": "Spades",
-        "index": 5
-      },
-      "totalBets": 0,
-      "totalPayouts": 0,
-      "playerCount": 0,
-      "allocations": [],
-      "winners": [],
-      "multiplier": 1,
-      "multiplierFactor": 1,
-      "isOverridden": false,
-      "time": "2026-10-19T12:25:45.585Z"
-    },
-    {
-      "id": "HIST-RND-PT2LJ4",
-      "roundId": "RND-PT2LJ4",
+      "id": "HIST-RND-KWLOAP",
+      "roundId": "RND-KWLOAP",
       "gameId": "lucky12",
-      "serverSeed": "5364e36113d252c3a5bb9fb0c29ef43e271f11b6087adb41",
-      "serverSeedHash": "9895c392b9e2513dbf3dffe071bb111365438994b331252a66aff1b819c69950",
-      "clientSeed": "96b2f8eda14d6156",
-      "resultIndex": 5,
+      "serverSeed": "237596a9ea14e88c5a1884a334f4fbfc2c0cd6183afcd8ec",
+      "serverSeedHash": "f1e38a280a880408db69f7423c224e4ad6093bcfa95cc89340f9c34b38a16d57",
+      "clientSeed": "5e69f43c35990817",
+      "resultIndex": 9,
       "winningCard": {
-        "label": "Q",
+        "label": "J",
         "suit": "♠",
-        "rank": "Q",
+        "rank": "J",
         "red": false,
         "suitName": "Spades",
-        "index": 5
+        "index": 9
       },
       "totalBets": 0,
       "totalPayouts": 0,
@@ -91,7 +91,7 @@
       "multiplier": 1,
       "multiplierFactor": 1,
       "isOverridden": false,
-      "time": "2026-10-19T12:25:45.584Z"
+      "time": "2026-10-19T12:51:25.040Z"
     }
   ],
   "adminPercentages": {

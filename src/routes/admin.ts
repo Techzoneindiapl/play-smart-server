@@ -3,6 +3,7 @@ import { GameId } from '../types';
 import { db } from '../store/db';
 import { gameEngine } from '../game/gameEngine';
 import { wsServer } from '../ws/websocketServer';
+import { DECK_12, DECK_16 } from '../game/deck';
 
 const router = Router();
 
@@ -541,6 +542,206 @@ router.post('/reports/logs', (req: Request, res: Response) => {
     ip: ip || req.ip || '127.0.0.1',
   });
   return res.json({ success: true, log });
+});
+
+// ---- Game Bet History (matches http://3.111.29.160/GameBet) ----
+router.get('/reports/game-bet', (req: Request, res: Response) => {
+  const { game_type, user_id, date, fromdate, todate, search } = req.query;
+  const history = db.getRoundHistory(undefined, 2000).filter((r: any) => r && r.gameId !== 'luckyTimer');
+  const activeRounds = Object.values(gameEngine.getAllActiveRounds()).filter((r: any) => r && r.gameId !== 'luckyTimer');
+
+  const getCardImg = (c: any) => {
+    if (!c) return '';
+    const suitMap: Record<string, string> = { '♥': 'l', '♠': 'k', '♦': 'f', '♣': 'c', 'hearts': 'l', 'spades': 'k', 'diamonds': 'f', 'clubs': 'c' };
+    const rankMap: Record<string, string> = { 'J': '11', 'Q': '12', 'K': '13', 'A': '14', '11': '11', '12': '12', '13': '13', '14': '14' };
+    const s = suitMap[c.suit] || 'k';
+    const r = rankMap[c.rank || c.label] || '11';
+    return `${s}-${r}.png`;
+  };
+
+  const formatDateTime = (iso: string) => {
+    const dt = new Date(iso);
+    if (isNaN(dt.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const y = dt.getFullYear();
+    const m = pad(dt.getMonth() + 1);
+    const d = pad(dt.getDate());
+    let h = dt.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${y}-${m}-${d} ${pad(h)}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())} ${ampm}`;
+  };
+
+  const rows: any[] = [];
+  let rowIndex = 1;
+
+  // 1. Process active rounds first (Not Result Declare)
+  activeRounds.forEach((r: any) => {
+    if (!r || r.status === 'revealed' || !r.allocations || r.allocations.length === 0) return;
+    const gType = r.gameId === 'lucky16' ? 'lucky_cards_16' : 'lucky_cards_12';
+    const deck = r.gameId === 'lucky16' ? DECK_16 : DECK_12;
+
+    const userMap: Record<string, any[]> = {};
+    r.allocations.forEach((a: any) => {
+      if (!userMap[a.username]) userMap[a.username] = [];
+      userMap[a.username].push(a);
+    });
+
+    Object.entries(userMap).forEach(([uname, allocs]) => {
+      const totalBet = allocs.reduce((sum: number, a: any) => sum + (a.points || 0), 0);
+      const allocCards = allocs.map((a: any) => {
+        const c = deck[a.targetIndex];
+        return {
+          cardImg: getCardImg(c),
+          amount: a.points,
+        };
+      });
+
+      rows.push({
+        DT_RowIndex: rowIndex++,
+        CreateDate: formatDateTime(new Date(allocs[0].placedAt || Date.now()).toISOString()),
+        UserName: uname,
+        Game_type: gType,
+        Game_id: r.id,
+        Ticket_id: 'TCK-' + (r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase()),
+        Bet: totalBet.toFixed(2),
+        Won: '0.00',
+        End: totalBet.toFixed(2),
+        Result: '<span class="badge badge-warning">Not Result Declare</span>',
+        Status: '<span class="badge badge-warning">Not Result Declare</span>',
+        time: new Date(allocs[0].placedAt || Date.now()).toISOString(),
+        allocations: allocCards,
+      });
+    });
+  });
+
+  // 2. Process finished round history
+  history.forEach(r => {
+    const is16 = r.gameId === 'lucky16';
+    const deck = is16 ? DECK_16 : DECK_12;
+    const gType = is16 ? 'lucky_cards_16' : 'lucky_cards_12';
+    const winCard = r.winningCard || (r.resultIndex !== undefined ? deck[r.resultIndex] : null);
+    const winCardImg = getCardImg(winCard);
+
+    if (r.allocations && r.allocations.length > 0) {
+      const userMap: Record<string, typeof r.allocations> = {};
+      r.allocations.forEach(a => {
+        if (!userMap[a.username]) userMap[a.username] = [];
+        userMap[a.username].push(a);
+      });
+
+      Object.entries(userMap).forEach(([uname, allocs]) => {
+        const totalBet = allocs.reduce((sum, a) => sum + (a.points || 0), 0);
+        const winEntry = (r.winners || []).find(w => w.username === uname);
+        const wonAmount = winEntry ? winEntry.winAmount : 0;
+        const endPoint = totalBet - wonAmount;
+        const isWin = wonAmount > 0;
+
+        const allocCards = allocs.map(a => {
+          const c = deck[a.targetIndex];
+          return {
+            cardImg: getCardImg(c),
+            amount: a.points,
+          };
+        });
+
+        rows.push({
+          DT_RowIndex: rowIndex++,
+          CreateDate: formatDateTime(r.time),
+          UserName: uname,
+          Game_type: gType,
+          Game_id: r.roundId || r.id,
+          Ticket_id: 'TCK-' + (r.roundId || r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase()),
+          Bet: totalBet.toFixed(2),
+          Won: wonAmount.toFixed(2),
+          End: endPoint.toFixed(2),
+          Result: winCardImg
+            ? `<img src="/assets/images/cards/${winCardImg}" style="border-radius:0" height="100%" width="30%">`
+            : '<span class="badge badge-secondary">Declared</span>',
+          Status: isWin
+            ? '<span class="badge badge-success">Claimed</span>'
+            : '<span class="badge badge-danger">Loss</span>',
+          time: r.time,
+          allocations: allocCards,
+        });
+      });
+    }
+  });
+
+  // Filters
+  let filtered = rows;
+  if (game_type) {
+    filtered = filtered.filter(row => row.Game_type === game_type);
+  }
+  if (user_id) {
+    filtered = filtered.filter(row => row.UserName.toLowerCase() === (user_id as string).toLowerCase());
+  }
+  if (date) {
+    filtered = filtered.filter(row => row.time && row.time.slice(0, 10) === date);
+  }
+  if (fromdate && todate) {
+    const fromMs = new Date(fromdate as string).setHours(0, 0, 0, 0);
+    const toMs = new Date(todate as string).setHours(23, 59, 59, 999);
+    filtered = filtered.filter(row => {
+      const t = new Date(row.time).getTime();
+      return t >= fromMs && t <= toMs;
+    });
+  }
+  if (search) {
+    const s = (search as string).toLowerCase();
+    filtered = filtered.filter(row =>
+      row.UserName.toLowerCase().includes(s) ||
+      row.Ticket_id.toLowerCase().includes(s) ||
+      row.Game_id.toLowerCase().includes(s) ||
+      row.Game_type.toLowerCase().includes(s)
+    );
+  }
+
+  filtered.forEach((r, idx) => {
+    r.DT_RowIndex = idx + 1;
+  });
+
+  return res.json({
+    draw: Number(req.query.draw || 1),
+    recordsTotal: rows.length,
+    recordsFiltered: filtered.length,
+    data: filtered,
+  });
+});
+
+// Delete Player History
+router.post('/reports/delete-player-history', (req: Request, res: Response) => {
+  const { from, to, password } = req.body;
+  if (password && password !== '123456') {
+    return res.status(403).json({ error: 'Invalid password' });
+  }
+  const deletedCount = db.deletePlayerHistory(from, to);
+  db.addActivityLog({
+    username: 'admin',
+    subject: `Deleted ${deletedCount} player history entries from ${from || 'start'} to ${to || 'now'}`,
+    url: '/deletePlayerHistory',
+    method: 'DELETE',
+    ip: req.ip || '127.0.0.1'
+  });
+  return res.json({ success: true, deletedCount });
+});
+
+router.all(['/deletePlayerHistory', '/deletePlayerHistory/:password'], (req: Request, res: Response) => {
+  const password = req.params.password || req.query.password || (req.body && req.body.password);
+  const from = req.query.from || (req.body && req.body.from);
+  const to = req.query.to || (req.body && req.body.to);
+  if (password && password !== '123456') {
+    return res.status(403).json({ error: 'Invalid password' });
+  }
+  const deletedCount = db.deletePlayerHistory(from as string, to as string);
+  db.addActivityLog({
+    username: 'admin',
+    subject: `Deleted ${deletedCount} player history entries from ${from || 'start'} to ${to || 'now'}`,
+    url: '/deletePlayerHistory',
+    method: 'DELETE',
+    ip: req.ip || '127.0.0.1'
+  });
+  return res.json({ success: true, deletedCount });
 });
 
 // ---- RTP & Settings ----

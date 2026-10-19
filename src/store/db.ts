@@ -443,6 +443,25 @@ class Database {
     }
   }
 
+  public deletePlayerHistory(fromStr?: string, toStr?: string): number {
+    const fromMs = fromStr ? new Date(fromStr).setHours(0, 0, 0, 0) : 0;
+    const toMs = toStr ? new Date(toStr).setHours(23, 59, 59, 999) : Date.now();
+
+    const prevLen = this.data.roundHistory.length;
+    this.data.roundHistory = this.data.roundHistory.filter(r => {
+      const rTime = new Date(r.time).getTime();
+      return !(rTime >= fromMs && rTime <= toMs);
+    });
+    const deletedCount = prevLen - this.data.roundHistory.length;
+    this.save();
+    if (this.isMongoConnected && fromStr && toStr) {
+      RoundHistoryModel.deleteMany({
+        time: { $gte: new Date(fromMs).toISOString(), $lte: new Date(toMs).toISOString() }
+      }).catch(err => console.error('Mongo delete round history error:', err));
+    }
+    return deletedCount;
+  }
+
   // ---- RTP Config ----
   public getRtpConfig(): RtpConfig {
     if (!this.data.rtpConfig) {
