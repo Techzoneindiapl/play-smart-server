@@ -427,7 +427,11 @@ class Database {
   public getRoundHistory(gameId?: string, limit = 50): RoundHistoryEntry[] {
     let list = this.data.roundHistory;
     if (gameId) {
-      list = list.filter(r => r.gameId === gameId);
+      if (gameId === 'lucky12' || gameId === 'luckyTimer') {
+        list = list.filter(r => r.gameId === 'lucky12' || r.gameId === 'luckyTimer');
+      } else {
+        list = list.filter(r => r.gameId === gameId);
+      }
     }
     return list.slice(0, limit);
   }

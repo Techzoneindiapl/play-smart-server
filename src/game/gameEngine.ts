@@ -285,11 +285,11 @@ export class GameEngine extends EventEmitter {
     db.addRoundHistory(historyEntry);
 
     // Deduct winner payouts from TOTAL Game Balance and add to TOTAL PAYMENT
-    // Only update for primary games ('lucky12' or 'lucky16'), not twin mirrors ('luckyTimer')
-    if (gameId !== 'luckyTimer' && totalPayout > 0) {
-      const updatedBal = db.addPayoutToGameBalance(gameId, totalPayout);
+    const targetBalanceId = gameId === 'luckyTimer' ? 'lucky12' : gameId;
+    if (totalPayout > 0) {
+      const updatedBal = db.addPayoutToGameBalance(targetBalanceId, totalPayout);
       this.emit('live_balance_updated', {
-        gameId,
+        gameId: targetBalanceId,
         liveBalance: updatedBal,
         allBalances: db.getAllLiveGameBalances(),
       });
@@ -301,7 +301,8 @@ export class GameEngine extends EventEmitter {
       roundId: round.id,
       resultIndex,
       winningCard: round.winningCard,
-      multiplier: grossMultiplier,
+      multiplier: multFactor,
+      grossMultiplier,
       multiplierFactor: multFactor,
       adminPercentage: adminPct,
       serverSeed: round.serverSeed,
@@ -414,16 +415,14 @@ export class GameEngine extends EventEmitter {
     });
 
     // Update live game balance: total betted points minus admin win percentage
-    // Only update for primary games ('lucky12' or 'lucky16'), not twin mirrors ('luckyTimer')
-    if (gameId !== 'luckyTimer') {
-      const adminPct = db.getAdminPercentage(gameId);
-      const updatedBal = db.addBetToGameBalance(gameId, points, adminPct);
-      this.emit('live_balance_updated', {
-        gameId,
-        liveBalance: updatedBal,
-        allBalances: db.getAllLiveGameBalances(),
-      });
-    }
+    const targetBalanceId = gameId === 'luckyTimer' ? 'lucky12' : gameId;
+    const adminPct = db.getAdminPercentage(targetBalanceId);
+    const updatedBal = db.addBetToGameBalance(targetBalanceId, points, adminPct);
+    this.emit('live_balance_updated', {
+      gameId: targetBalanceId,
+      liveBalance: updatedBal,
+      allBalances: db.getAllLiveGameBalances(),
+    });
 
     if (!isBot) {
       const updatedUser = db.getUserByUsername(username);
