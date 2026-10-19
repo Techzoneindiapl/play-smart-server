@@ -34,13 +34,26 @@ router.get('/user-history/:username', (req: Request, res: Response) => {
   return res.json(history);
 });
 
+function getUsernameFromReq(req: Request): string {
+  const q = req.query.username as string;
+  if (q) return q;
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith('Bearer jwt_')) {
+    try {
+      return Buffer.from(auth.replace('Bearer jwt_', ''), 'base64').toString('utf-8');
+    } catch (_) {}
+  }
+  return 'demo';
+}
+
 router.post('/bet', (req: Request, res: Response) => {
-  const { gameId, username, targetIndex, points } = req.body;
+  const { gameId, targetIndex, points } = req.body;
+  const username = req.body.username || getUsernameFromReq(req);
   if (!gameId || targetIndex === undefined || !points || points <= 0) {
     return res.status(400).json({ error: 'Missing required bet parameters' });
   }
 
-  const result = gameEngine.placeAllocation(gameId as GameId, username || 'demo', targetIndex, points, false);
+  const result = gameEngine.placeAllocation(gameId as GameId, username, targetIndex, points, false);
   if (!result.success) {
     return res.status(400).json({ error: result.error });
   }

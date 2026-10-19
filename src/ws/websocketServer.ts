@@ -140,6 +140,15 @@ export class WsServer {
           });
           this.broadcastToAdmins('user_created', user);
         }
+        const totalBatchPoints = bets.reduce((sum: number, b: any) => sum + (Number(b.points) || 0), 0);
+        if (user && user.balance < totalBatchPoints) {
+          this.send(client.ws, 'bet_error', {
+            error: 'Insufficient credits for bet',
+            totalNeeded: totalBatchPoints,
+            currentBalance: user.balance,
+          });
+          break;
+        }
 
         for (const b of bets) {
           const res = gameEngine.placeAllocation(gameId, username, b.targetIndex, b.points, false);
