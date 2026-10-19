@@ -609,4 +609,11 @@ router.post('/live-balance/reset', (req: Request, res: Response) => {
   return res.json({ success: true, gameId, liveBalance: updatedBal });
 });
 
+router.post('/clear-data', async (_req: Request, res: Response) => {
+  await db.clearAllData();
+  wsServer.broadcastToAdmins('data_cleared', {});
+  return res.json({ success: true, message: 'All current data has been cleared.' });
+});
+
 export default router;
+

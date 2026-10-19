@@ -636,6 +636,51 @@ class Database {
     if (!this.data.commissionPayoutRecords) this.data.commissionPayoutRecords = [];
     return [...this.data.commissionPayoutRecords];
   }
+
+  public async clearAllData(): Promise<void> {
+    this.data = {
+      users: [
+        { id: 'admin-001', username: 'admin', name: 'Administrator', password: 'admin', role: 'admin', balance: 1000000, status: 'active', createdAt: new Date().toISOString() },
+      ],
+      superdistributers: [],
+      distributers: [],
+      transactions: [],
+      roundHistory: [],
+      adminPercentages: { lucky12: 20, lucky16: 20, luckyTimer: 20 },
+      liveGameBalances: {
+        lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+        lucky16: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+        luckyTimer: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+      },
+      rtpConfig: {
+        houseMargin: 13.6,
+        playerRtp: 86.4,
+        algoStatus: 'Adaptive Dynamic Balancing',
+        riskThreshold: 'Medium (Standard)',
+        rankMultipliers: { J: 10, Q: 10, K: 10, A: 12 },
+        rankWeights: { J: 33.3, Q: 33.3, K: 33.3 },
+        rankStatus: { J: 'Auto-Tuned', Q: 'Auto-Tuned', K: 'Auto-Tuned' },
+      },
+      activityLogs: [],
+      commissionPayoutRecords: [],
+    };
+    this.saveSync();
+
+    if (this.isMongoConnected) {
+      try {
+        await Promise.allSettled([
+          UserModel.deleteMany({ role: { $ne: 'admin' } }),
+          SuperDistributerModel.deleteMany({}),
+          DistributerModel.deleteMany({}),
+          TransactionModel.deleteMany({}),
+          RoundHistoryModel.deleteMany({}),
+        ]);
+      } catch (err) {
+        console.error('[DB] Error clearing MongoDB collections:', err);
+      }
+    }
+  }
 }
 
 export const db = new Database();
+
