@@ -117,3 +117,25 @@ export interface RtpConfig {
   rankWeights: Record<string, number>;
   rankStatus: Record<string, string>;
 }
+
+export interface ActivityLog {
+  id: string;
+  userId?: string;
+  username: string;
+  subject: string;
+  url: string;
+  method: string;
+  ip: string;
+  createdAt: string;
+}
+
+export interface CommissionPayoutRecord {
+  id: string;
+  username: string;
+  role: string;
+  oldCommission: number;
+  amount: number;
+  newCommission: number;
+  createdAt: string;
+}
+

@@ -239,61 +239,308 @@ router.post('/credit/adjust', (req: Request, res: Response) => {
 });
 
 // ---- Reports ----
-router.get('/reports/turnover', (_req: Request, res: Response) => {
+// ---- Reports ----
+router.get('/reports/turnover', (req: Request, res: Response) => {
+  const { from, to, type } = req.query;
   const history = db.getRoundHistory(undefined, 2000);
-  const now = Date.now();
+  const users = db.getUsers().filter(u => u.role !== 'admin');
+  const dists = db.getDistributers();
+  const txs = db.getTransactions(5000);
 
-  const getStats = (hours: number) => {
-    const cutoff = now - hours * 3600 * 1000;
-    const filtered = history.filter(h => new Date(h.time).getTime() >= cutoff);
-    const allocated = filtered.reduce((s, h) => s + h.totalBets, 0);
-    const payout = filtered.reduce((s, h) => s + h.totalPayouts, 0);
-    const rounds = filtered.length;
-    const users = filtered.reduce((s, h) => s + h.playerCount, 0);
+  // Time filtering
+  let fromMs = 0;
+  let toMs = Date.now();
+  if (from) fromMs = new Date(from as string).setHours(0, 0, 0, 0);
+  if (to) toMs = new Date(to as string).setHours(23, 59, 59, 999);
+
+  const filteredHistory = history.filter(h => {
+    const t = new Date(h.time).getTime();
+    return t >= fromMs && t <= toMs;
+  });
+
+  const filteredTxs = txs.filter(t => {
+    const timeMs = new Date(t.time).getTime();
+    return timeMs >= fromMs && timeMs <= toMs;
+  });
+
+  let totalPlay = 0;
+  let totalWin = 0;
+  let totalComm = 0;
+
+  const userStats = users.map((u, idx) => {
+    // Calculate play amount and win amount from user's bets & payouts
+    const uTxs = filteredTxs.filter(t => t.username === u.username);
+    let play = uTxs.filter(t => t.type === 'bet').reduce((s, t) => s + (t.amount || 0), 0);
+    let win = uTxs.filter(t => t.type === 'payout' || t.type === 'win').reduce((s, t) => s + (t.amount || 0), 0);
+
+    // Fallback: check round allocations if txs not yet generated
+    if (play === 0 && win === 0) {
+      filteredHistory.forEach(r => {
+        (r.allocations || []).filter(a => a.username === u.username).forEach(a => {
+          play += a.points || 0;
+        });
+        (r.winners || []).filter(w => w.username === u.username).forEach(w => {
+          win += w.winAmount || 0;
+        });
+      });
+    }
+
+    const end = play - win;
+    const dist = dists.find(d => d.id === u.distributerId || d.name === u.distributerId);
+    const commRate = dist ? (dist.commission || 1.5) : 1.5;
+    const comm = Math.round((play * (commRate / 100)) * 100) / 100;
+    const net = Math.round((end - comm) * 100) / 100;
+
+    totalPlay += play;
+    totalWin += win;
+    totalComm += comm;
+
     return {
-      allocated: allocated.toLocaleString(),
-      payout: payout.toLocaleString(),
-      rounds,
-      users,
+      DT_RowIndex: idx + 1,
+      user_name: u.username,
+      play_amount: play.toFixed(2),
+      win_amount: win.toFixed(2),
+      claim_amount: win.toFixed(2),
+      end_amount: end.toFixed(2),
+      commission_amount: comm.toFixed(2),
+      ntp_amount: net.toFixed(2),
     };
+  });
+
+  const totalEnd = Math.round((totalPlay - totalWin) * 100) / 100;
+  const totalNet = Math.round((totalEnd - totalComm) * 100) / 100;
+
+  const top = {
+    DT_RowIndex: 1,
+    play_amount: totalPlay.toFixed(2),
+    win_amount: totalWin.toFixed(2),
+    claim_amount: totalWin.toFixed(2),
+    end_amount: totalEnd.toFixed(2),
+    commission_amount: totalComm.toFixed(2),
+    ntp_amount: totalNet.toFixed(2),
   };
 
   return res.json({
-    today: getStats(24),
-    yesterday: getStats(48),
-    week: getStats(168),
-    month: getStats(720),
-    '6months': getStats(4320),
+    summary: top,
+    top,
+    users: userStats,
+    data: userStats,
+  });
+});
+
+router.get('/reports/turnover/top', (req: Request, res: Response) => {
+  const { from, to } = req.query;
+  const history = db.getRoundHistory(undefined, 2000);
+  const txs = db.getTransactions(5000);
+
+  let fromMs = 0;
+  let toMs = Date.now();
+  if (from) fromMs = new Date(from as string).setHours(0, 0, 0, 0);
+  if (to) toMs = new Date(to as string).setHours(23, 59, 59, 999);
+
+  const filteredTxs = txs.filter(t => {
+    const timeMs = new Date(t.time).getTime();
+    return timeMs >= fromMs && timeMs <= toMs;
+  });
+
+  let play = filteredTxs.filter(t => t.type === 'bet').reduce((s, t) => s + (t.amount || 0), 0);
+  let win = filteredTxs.filter(t => t.type === 'payout' || t.type === 'win').reduce((s, t) => s + (t.amount || 0), 0);
+
+  if (play === 0 && win === 0) {
+    history.forEach(r => {
+      play += r.totalBets || 0;
+      play += 0;
+      win += r.totalPayouts || 0;
+    });
+  }
+
+  const end = play - win;
+  const comm = Math.round((play * 0.015) * 100) / 100;
+  const net = Math.round((end - comm) * 100) / 100;
+
+  return res.json({
+    data: [{
+      DT_RowIndex: 1,
+      play_amount: play.toFixed(2),
+      win_amount: win.toFixed(2),
+      claim_amount: win.toFixed(2),
+      end_amount: end.toFixed(2),
+      commission_amount: comm.toFixed(2),
+      ntp_amount: net.toFixed(2),
+    }]
+  });
+});
+
+router.get('/reports/admin-commission', (req: Request, res: Response) => {
+  const { from, to } = req.query;
+  const history = db.getRoundHistory(undefined, 2000);
+
+  let fromMs = 0;
+  let toMs = Date.now();
+  if (from) fromMs = new Date(from as string).setHours(0, 0, 0, 0);
+  if (to) toMs = new Date(to as string).setHours(23, 59, 59, 999);
+
+  const filteredHistory = history.filter(h => {
+    const t = new Date(h.time).getTime();
+    return t >= fromMs && t <= toMs;
+  });
+
+  const games = [
+    { id: 'lucky12', name: 'lucky_cards_12' },
+    { id: 'lucky16', name: 'lucky_cards_16' },
+    { id: 'luckyTimer', name: 'lucky_timer' },
+  ];
+
+  let grandComm = 0;
+  let grandBet = 0;
+  let grandWon = 0;
+
+  const gameRows = games.map((g, idx) => {
+    const rounds = filteredHistory.filter(h => h.gameId === g.id);
+    const bet = rounds.reduce((s, r) => s + (r.totalBets || 0), 0);
+    const won = rounds.reduce((s, r) => s + (r.totalPayouts || 0), 0);
+    const pct = db.getAdminPercentage(g.id);
+    const comm = Math.round((bet * (pct / 100)) * 100) / 100;
+
+    grandComm += comm;
+    grandBet += bet;
+    grandWon += won;
+
+    return {
+      DT_RowIndex: idx + 1,
+      game_type: g.name,
+      commission_amount: comm.toFixed(2),
+      total_bet_amount: bet.toFixed(2),
+      total_win_amount: won.toFixed(2),
+    };
+  });
+
+  const top = {
+    DT_RowIndex: 1,
+    play_amount: grandComm.toFixed(2), // Total Commission Point
+    win_amount: grandBet.toFixed(2),   // Total Bet Point
+    claim_amount: grandWon.toFixed(2), // Total Won Point
+  };
+
+  return res.json({
+    summary: top,
+    top,
+    data: gameRows,
   });
 });
 
 router.get('/reports/transactions', (req: Request, res: Response) => {
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 200;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 500;
   const username = req.query.username as string;
   const txs = db.getTransactions(limit, username);
   return res.json(txs);
 });
 
-router.get('/reports/commission', (_req: Request, res: Response) => {
+// Pending Commission Report
+router.get('/reports/commission', (req: Request, res: Response) => {
   const sds = db.getSuperDistributers();
   const dists = db.getDistributers();
-  const history = db.getRoundHistory(undefined, 500);
-  const totalBets = history.reduce((s, h) => s + h.totalBets, 0);
+  const users = db.getUsers().filter(u => u.role !== 'admin');
+  const history = db.getRoundHistory(undefined, 2000);
+  const totalBets = history.reduce((s, h) => s + (h.totalBets || 0), 0);
 
-  const data = dists.map(d => {
-    const commAmt = Math.round((totalBets * (d.commission / 100)) * 100) / 100;
-    return {
-      distId: d.id,
-      distName: d.name,
-      superId: d.superId,
-      commissionPercent: d.commission,
-      turnover: totalBets,
-      payoutAmount: commAmt,
-      status: 'settled',
-    };
+  let index = 1;
+  const list: any[] = [];
+
+  // Super Distributors
+  sds.forEach(sd => {
+    const commAmt = Math.round((totalBets * ((sd.commission || 2.5) / 100)) * 100) / 100;
+    list.push({
+      DT_RowIndex: index++,
+      UserName: sd.name || sd.code,
+      Role: 'Super Distributer',
+      commission_percentage: sd.commission || 2.5,
+      Commission: commAmt.toFixed(2),
+      CreateDate: sd.createdAt ? new Date(sd.createdAt).toLocaleString() : new Date().toLocaleString(),
+      action: sd.id,
+    });
   });
 
-  return res.json(data);
+  // Distributors
+  dists.forEach(d => {
+    const commAmt = Math.round((totalBets * ((d.commission || 1.5) / 100)) * 100) / 100;
+    list.push({
+      DT_RowIndex: index++,
+      UserName: d.name || d.code,
+      Role: 'Distributer',
+      commission_percentage: d.commission || 1.5,
+      Commission: commAmt.toFixed(2),
+      CreateDate: d.createdAt ? new Date(d.createdAt).toLocaleString() : new Date().toLocaleString(),
+      action: d.id,
+    });
+  });
+
+  // Retailers
+  users.slice(0, 10).forEach(u => {
+    list.push({
+      DT_RowIndex: index++,
+      UserName: u.username,
+      Role: 'Retailer',
+      commission_percentage: 1.0,
+      Commission: '0.00',
+      CreateDate: u.createdAt ? new Date(u.createdAt).toLocaleString() : new Date().toLocaleString(),
+      action: u.id,
+    });
+  });
+
+  return res.json({
+    data: list,
+  });
+});
+
+// Commission Payout History
+router.get('/reports/commission-payouts', (_req: Request, res: Response) => {
+  const records = db.getCommissionPayoutRecords();
+  return res.json({ data: records });
+});
+
+router.post('/reports/commission/pay', (req: Request, res: Response) => {
+  const { username, role, amount, oldCommission } = req.body;
+  const amt = Number(amount) || 0;
+  const oldComm = Number(oldCommission) || 0;
+  const newComm = Math.max(0, oldComm - amt);
+
+  const rec = db.addCommissionPayoutRecord({
+    username: username || 'Distributer',
+    role: role || 'Distributer',
+    oldCommission: oldComm,
+    amount: amt,
+    newCommission: newComm,
+  });
+
+  db.addActivityLog({
+    username: 'admin',
+    subject: `Paid Commission ₹${amt} to ${username} (${role})`,
+    url: '/commission',
+    method: 'POST',
+  });
+
+  return res.json({ success: true, payout: rec });
+});
+
+// Activity Logs
+router.get('/reports/logs', (req: Request, res: Response) => {
+  const date = req.query.date as string;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+  const logs = db.getActivityLogs(limit, date);
+  return res.json({ data: logs });
+});
+
+router.post('/reports/logs', (req: Request, res: Response) => {
+  const { username, subject, url, method, ip } = req.body;
+  const log = db.addActivityLog({
+    username: username || 'admin',
+    subject: subject || 'Admin Action',
+    url: url || '/dashboard',
+    method: method || 'POST',
+    ip: ip || req.ip || '127.0.0.1',
+  });
+  return res.json({ success: true, log });
 });
 
 // ---- RTP & Settings ----

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
-import { User, SuperDistributer, Distributer, WalletTransaction, RoundHistoryEntry, RtpConfig } from '../types';
+import { User, SuperDistributer, Distributer, WalletTransaction, RoundHistoryEntry, RtpConfig, ActivityLog, CommissionPayoutRecord } from '../types';
 import {
   UserModel,
   SuperDistributerModel,
@@ -20,6 +20,8 @@ export interface DatabaseSchema {
   rtpConfig: RtpConfig;
   adminPercentages?: Record<string, number>;
   liveGameBalances?: Record<string, LiveGameBalance>;
+  activityLogs?: ActivityLog[];
+  commissionPayoutRecords?: CommissionPayoutRecord[];
 }
 
 export interface LiveGameBalance {
@@ -582,6 +584,57 @@ class Database {
         net: userWon - userBet,
       };
     });
+  }
+
+  // ---- Activity Logs ----
+  public addActivityLog(entry: { username: string; subject: string; url: string; method: string; ip?: string; userId?: string }): ActivityLog {
+    if (!this.data.activityLogs) this.data.activityLogs = [];
+    const log: ActivityLog = {
+      id: 'LOG-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+      createdAt: new Date().toISOString(),
+      ip: entry.ip || '127.0.0.1',
+      ...entry,
+    };
+    this.data.activityLogs.unshift(log);
+    if (this.data.activityLogs.length > 500) {
+      this.data.activityLogs.pop();
+    }
+    this.save();
+    return log;
+  }
+
+  public getActivityLogs(limit = 100, dateFilter?: string): ActivityLog[] {
+    if (!this.data.activityLogs) {
+      this.data.activityLogs = [
+        { id: 'LOG-1', username: 'admin', subject: 'Admin Logged in successfully', url: '/login', method: 'POST', ip: '127.0.0.1', createdAt: new Date().toISOString() },
+        { id: 'LOG-2', username: 'admin', subject: 'Viewed Turnover Report', url: '/TurnOver_Report', method: 'GET', ip: '127.0.0.1', createdAt: new Date(Date.now() - 3600000).toISOString() },
+        { id: 'LOG-3', username: 'admin', subject: 'Viewed Transaction Report', url: '/transaction', method: 'GET', ip: '127.0.0.1', createdAt: new Date(Date.now() - 7200000).toISOString() },
+      ];
+      this.save();
+    }
+    let list = this.data.activityLogs;
+    if (dateFilter) {
+      list = list.filter(l => l.createdAt.startsWith(dateFilter));
+    }
+    return list.slice(0, limit);
+  }
+
+  // ---- Commission Payout Records ----
+  public addCommissionPayoutRecord(rec: { username: string; role: string; oldCommission: number; amount: number; newCommission: number }): CommissionPayoutRecord {
+    if (!this.data.commissionPayoutRecords) this.data.commissionPayoutRecords = [];
+    const payout: CommissionPayoutRecord = {
+      id: 'PAY-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+      createdAt: new Date().toISOString(),
+      ...rec,
+    };
+    this.data.commissionPayoutRecords.unshift(payout);
+    this.save();
+    return payout;
+  }
+
+  public getCommissionPayoutRecords(): CommissionPayoutRecord[] {
+    if (!this.data.commissionPayoutRecords) this.data.commissionPayoutRecords = [];
+    return [...this.data.commissionPayoutRecords];
   }
 }
 

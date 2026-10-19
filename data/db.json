@@ -126,6 +126,84 @@
   ],
   "roundHistory": [
     {
+      "id": "HIST-RND-DZ7XLO",
+      "roundId": "RND-DZ7XLO",
+      "gameId": "luckyTimer",
+      "serverSeed": "a63924b26d9d894ba53f8cc97f9dd4fc20eaf00380965dc3",
+      "serverSeedHash": "be7643a911836d97d2697ed9fe7c57fda7bec32914e4a575dbb190dc8c6bd8bc",
+      "clientSeed": "93a611bfaa038801",
+      "resultIndex": 9,
+      "winningCard": {
+        "label": "J",
+        "suit": "♠",
+        "rank": "J",
+        "red": false,
+        "suitName": "Spades",
+        "index": 9
+      },
+      "totalBets": 0,
+      "totalPayouts": 0,
+      "playerCount": 0,
+      "allocations": [],
+      "winners": [],
+      "multiplier": 1,
+      "multiplierFactor": 1,
+      "isOverridden": false,
+      "time": "2026-10-19T12:15:13.089Z"
+    },
+    {
+      "id": "HIST-RND-OAJ747",
+      "roundId": "RND-OAJ747",
+      "gameId": "lucky16",
+      "serverSeed": "cc1ba7004ad1ef0f0808cdb25049f299989efb8a3173be28",
+      "serverSeedHash": "ab4884352dac059ca7e710c1179a6b1c2b8317bbe2810aad46b0fcb788ad8ce9",
+      "clientSeed": "22f6d514de8f1953",
+      "resultIndex": 10,
+      "winningCard": {
+        "label": "Q",
+        "suit": "♦",
+        "rank": "Q",
+        "red": true,
+        "suitName": "Diamonds",
+        "index": 10
+      },
+      "totalBets": 0,
+      "totalPayouts": 0,
+      "playerCount": 0,
+      "allocations": [],
+      "winners": [],
+      "multiplier": 1,
+      "multiplierFactor": 1,
+      "isOverridden": false,
+      "time": "2026-10-19T12:15:13.089Z"
+    },
+    {
+      "id": "HIST-RND-F8QT2M",
+      "roundId": "RND-F8QT2M",
+      "gameId": "lucky12",
+      "serverSeed": "2cb09d2492c08dbce74f3efff4849d6bc95a92d507a0a7b4",
+      "serverSeedHash": "c00a5caada2ef5a92cf1c0c6ecf0c23580536b6a84d3f1c0534258f7689cdc49",
+      "clientSeed": "5007c173668e8e82",
+      "resultIndex": 10,
+      "winningCard": {
+        "label": "J",
+        "suit": "♦",
+        "rank": "J",
+        "red": true,
+        "suitName": "Diamonds",
+        "index": 10
+      },
+      "totalBets": 0,
+      "totalPayouts": 0,
+      "playerCount": 0,
+      "allocations": [],
+      "winners": [],
+      "multiplier": 1,
+      "multiplierFactor": 1,
+      "isOverridden": false,
+      "time": "2026-10-19T12:15:13.085Z"
+    },
+    {
       "id": "HIST-RND-R9W4BA",
       "roundId": "RND-R9W4BA",
       "gameId": "luckyTimer",
@@ -47793,78 +47871,29 @@
       "playerCount": 0,
       "isOverridden": false,
       "time": "2026-10-10T13:56:12.185Z"
-    },
-    {
-      "id": "HIST-RND-QBVXDV",
-      "roundId": "RND-QBVXDV",
-      "gameId": "lucky12",
-      "serverSeed": "c86acfeed8f5c6d2b99c389cc36adc4574176426049d3968",
-      "serverSeedHash": "35b6f438c8483aa3f1d6981c75b5e5d106adc9f6232077f9f11eeccb2f55030a",
-      "clientSeed": "392061e596e0cb15",
-      "resultIndex": 6,
-      "winningCard": {
-        "label": "J",
-        "suit": "♦",
-        "rank": "J",
-        "red": true,
-        "suitName": "Diamonds",
-        "index": 6
-      },
-      "totalBets": 0,
-      "totalPayouts": 0,
-      "playerCount": 0,
-      "isOverridden": false,
-      "time": "2026-10-10T13:56:11.714Z"
-    },
-    {
-      "id": "HIST-RND-KP1VEJ",
-      "roundId": "RND-KP1VEJ",
-      "gameId": "luckyTimer",
-      "serverSeed": "58710d24d71d1b0d4332284e3bf54df689db1206998b0eaa",
-      "serverSeedHash": "53177eb365aa63e3eded8c3e8c068fb873ae2bc7f363307183d5f3f98e3e728a",
-      "clientSeed": "7880f8b234c665e6",
-      "resultIndex": 0,
-      "winningCard": {
-        "label": "J",
-        "suit": "♥",
-        "rank": "J",
-        "red": true,
-        "suitName": "Hearts",
-        "index": 0
-      },
-      "totalBets": 0,
-      "totalPayouts": 0,
-      "playerCount": 0,
-      "isOverridden": false,
-      "time": "2026-10-10T13:56:07.711Z"
-    },
-    {
-      "id": "HIST-RND-54TF87",
-      "roundId": "RND-54TF87",
-      "gameId": "luckyTimer",
-      "serverSeed": "c1851fc7878baeee5682adf59e8bcb1e7bb1931637e84b4a",
-      "serverSeedHash": "6fa30784820b7f253adada7a284d0220d36d6c491756cad3987bc65620127193",
-      "clientSeed": "65dbc895c52a2512",
-      "resultIndex": 1,
-      "winningCard": {
-        "label": "Q",
-        "suit": "♥",
-        "rank": "Q",
-        "red": true,
-        "suitName": "Hearts",
-        "index": 1
-      },
-      "totalBets": 0,
-      "totalPayouts": 0,
-      "playerCount": 0,
-      "isOverridden": false,
-      "time": "2026-10-10T13:55:38.687Z"
     }
   ],
   "adminPercentages": {
     "lucky12": 20,
     "lucky16": 20,
     "luckyTimer": 20
+  },
+  "liveGameBalances": {
+    "lucky12": {
+      "gameBalance": 0,
+      "totalCollection": 0,
+      "totalPayment": 0
+    },
+    "lucky16": {
+      "gameBalance": 0,
+      "totalCollection": 0,
+      "totalPayment": 0
+    },
+    "luckyTimer": {
+      "gameBalance": 0,
+      "totalCollection": 0,
+      "totalPayment": 0
+    }
   },
   "rtpConfig": {
     "houseMargin": 13.6,
@@ -47889,5 +47918,34 @@
     },
     "payoutRatio": 12,
     "lastUpdated": "2026-01-01T00:00:00.000Z"
-  }
+  },
+  "activityLogs": [
+    {
+      "id": "LOG-1",
+      "username": "admin",
+      "subject": "Admin Logged in successfully",
+      "url": "/login",
+      "method": "POST",
+      "ip": "127.0.0.1",
+      "createdAt": "2026-10-19T12:14:17.156Z"
+    },
+    {
+      "id": "LOG-2",
+      "username": "admin",
+      "subject": "Viewed Turnover Report",
+      "url": "/TurnOver_Report",
+      "method": "GET",
+      "ip": "127.0.0.1",
+      "createdAt": "2026-10-19T11:14:17.156Z"
+    },
+    {
+      "id": "LOG-3",
+      "username": "admin",
+      "subject": "Viewed Transaction Report",
+      "url": "/transaction",
+      "method": "GET",
+      "ip": "127.0.0.1",
+      "createdAt": "2026-10-19T10:14:17.156Z"
+    }
+  ]
 }
