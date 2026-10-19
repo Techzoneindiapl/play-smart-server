@@ -343,4 +343,23 @@ router.get('/online', (_req: Request, res: Response) => {
   return res.json(wsServer.getOnlinePlayersList());
 });
 
+// ---- Live Game Balance ----
+router.get('/live-balance', (_req: Request, res: Response) => {
+  return res.json(db.getAllLiveGameBalances());
+});
+
+router.post('/live-balance/reset', (req: Request, res: Response) => {
+  const { gameId } = req.body;
+  if (!gameId) {
+    return res.status(400).json({ error: 'gameId is required' });
+  }
+  const updatedBal = db.resetGameBalance(gameId as string);
+  wsServer.broadcastToAdmins('live_balance_updated', {
+    gameId,
+    liveBalance: updatedBal,
+    allBalances: db.getAllLiveGameBalances(),
+  });
+  return res.json({ success: true, gameId, liveBalance: updatedBal });
+});
+
 export default router;

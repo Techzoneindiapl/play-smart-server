@@ -19,6 +19,13 @@ export interface DatabaseSchema {
   roundHistory: RoundHistoryEntry[];
   rtpConfig: RtpConfig;
   adminPercentages?: Record<string, number>;
+  liveGameBalances?: Record<string, LiveGameBalance>;
+}
+
+export interface LiveGameBalance {
+  gameBalance: number;
+  totalCollection: number;
+  totalPayment: number;
 }
 
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -33,6 +40,11 @@ const INITIAL_DB: DatabaseSchema = {
   transactions: [],
   roundHistory: [],
   adminPercentages: { lucky12: 20, lucky16: 20, luckyTimer: 20 },
+  liveGameBalances: {
+    lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+    lucky16: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+    luckyTimer: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+  },
   rtpConfig: {
     houseMargin: 13.6,
     playerRtp: 86.4,
@@ -478,6 +490,85 @@ class Database {
       this.data.adminPercentages = { lucky12: 20, lucky16: 20, luckyTimer: 20 };
     }
     return { ...this.data.adminPercentages };
+  }
+
+  // ---- Live Game Balance ----
+  public getLiveGameBalance(gameId: string): LiveGameBalance {
+    if (!this.data.liveGameBalances) {
+      this.data.liveGameBalances = {
+        lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+        lucky16: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+        luckyTimer: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+      };
+    }
+    if (!this.data.liveGameBalances[gameId]) {
+      this.data.liveGameBalances[gameId] = { gameBalance: 0, totalCollection: 0, totalPayment: 0 };
+    }
+    return { ...this.data.liveGameBalances[gameId] };
+  }
+
+  public getAllLiveGameBalances(): Record<string, LiveGameBalance> {
+    if (!this.data.liveGameBalances) {
+      this.data.liveGameBalances = {
+        lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+        lucky16: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+        luckyTimer: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
+      };
+    }
+    return JSON.parse(JSON.stringify(this.data.liveGameBalances));
+  }
+
+  public addBetToGameBalance(gameId: string, betPoints: number, adminPct: number): LiveGameBalance {
+    const cur = this.getLiveGameBalance(gameId);
+    // Deduct win percentage cut from bet points
+    // Example: 20 points bet with 10% win percentage => 2 points deducted, 18 added to gameBalance
+    const deduction = (betPoints * adminPct) / 100;
+    const netPoints = betPoints - deduction;
+    cur.gameBalance = Math.round((cur.gameBalance + netPoints) * 100) / 100;
+
+    this.data.liveGameBalances![gameId] = cur;
+    if (gameId === 'lucky12' && this.data.liveGameBalances!.luckyTimer) {
+      this.data.liveGameBalances!.luckyTimer = { ...cur };
+    }
+    if (gameId === 'luckyTimer' && this.data.liveGameBalances!.lucky12) {
+      this.data.liveGameBalances!.lucky12 = { ...cur };
+    }
+    this.save();
+    return cur;
+  }
+
+  public addPayoutToGameBalance(gameId: string, payoutPoints: number): LiveGameBalance {
+    const cur = this.getLiveGameBalance(gameId);
+    // Winners points are deducted from TOTAL Game Balance, and added to TOTAL PAYMENT
+    cur.gameBalance = Math.round((cur.gameBalance - payoutPoints) * 100) / 100;
+    cur.totalPayment = Math.round((cur.totalPayment + payoutPoints) * 100) / 100;
+
+    this.data.liveGameBalances![gameId] = cur;
+    if (gameId === 'lucky12' && this.data.liveGameBalances!.luckyTimer) {
+      this.data.liveGameBalances!.luckyTimer = { ...cur };
+    }
+    if (gameId === 'luckyTimer' && this.data.liveGameBalances!.lucky12) {
+      this.data.liveGameBalances!.lucky12 = { ...cur };
+    }
+    this.save();
+    return cur;
+  }
+
+  public resetGameBalance(gameId: string): LiveGameBalance {
+    const cur = this.getLiveGameBalance(gameId);
+    // TOTAL COLLECTION is updated when Reset button triggered: TOTAL Game Balance is added into TOTAL COLLECTION
+    cur.totalCollection = Math.round((cur.totalCollection + cur.gameBalance) * 100) / 100;
+    cur.gameBalance = 0;
+
+    this.data.liveGameBalances![gameId] = cur;
+    if (gameId === 'lucky12' && this.data.liveGameBalances!.luckyTimer) {
+      this.data.liveGameBalances!.luckyTimer = { ...cur };
+    }
+    if (gameId === 'luckyTimer' && this.data.liveGameBalances!.lucky12) {
+      this.data.liveGameBalances!.lucky12 = { ...cur };
+    }
+    this.save();
+    return cur;
   }
 
   // ---- User Round History for Player App Reports ----

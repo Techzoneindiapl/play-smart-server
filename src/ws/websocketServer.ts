@@ -116,6 +116,7 @@ export class WsServer {
           online,
           users: db.getUsers(),
           rtpConfig: db.getRtpConfig(),
+          liveGameBalances: db.getAllLiveGameBalances(),
         });
         break;
       }
@@ -191,6 +192,17 @@ export class WsServer {
         break;
       }
 
+      case 'admin_reset_game_balance': {
+        const gameId: string = data.gameId || 'lucky12';
+        const updatedBal = db.resetGameBalance(gameId);
+        this.broadcastToAdmins('live_balance_updated', {
+          gameId,
+          liveBalance: updatedBal,
+          allBalances: db.getAllLiveGameBalances(),
+        });
+        break;
+      }
+
       default:
         break;
     }
@@ -229,6 +241,10 @@ export class WsServer {
 
     gameEngine.on('admin_forced_updated', (forcedData) => {
       this.broadcastToAdmins('admin_forced_updated', forcedData);
+    });
+
+    gameEngine.on('live_balance_updated', (balanceData) => {
+      this.broadcastToAdmins('live_balance_updated', balanceData);
     });
   }
 

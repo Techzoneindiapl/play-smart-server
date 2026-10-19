@@ -302,6 +302,16 @@ export class GameEngine extends EventEmitter {
     };
     db.addRoundHistory(historyEntry);
 
+    // Deduct winner payouts from TOTAL Game Balance and add to TOTAL PAYMENT
+    if (totalPayout > 0) {
+      const updatedBal = db.addPayoutToGameBalance(gameId, totalPayout);
+      this.emit('live_balance_updated', {
+        gameId,
+        liveBalance: updatedBal,
+        allBalances: db.getAllLiveGameBalances(),
+      });
+    }
+
     // Broadcast result
     this.emit('game_result', {
       gameId,
@@ -418,6 +428,15 @@ export class GameEngine extends EventEmitter {
       roundId: round.id,
       allocation: alloc,
       totalRoundPoints: round.allocations.reduce((s, a) => s + a.points, 0),
+    });
+
+    // Update live game balance: total betted points minus admin win percentage
+    const adminPct = db.getAdminPercentage(gameId);
+    const updatedBal = db.addBetToGameBalance(gameId, points, adminPct);
+    this.emit('live_balance_updated', {
+      gameId,
+      liveBalance: updatedBal,
+      allBalances: db.getAllLiveGameBalances(),
     });
 
     if (!isBot) {
