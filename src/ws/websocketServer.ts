@@ -93,11 +93,13 @@ export class WsServer {
         const round = gameEngine.getRound(gameId);
         const history = db.getRoundHistory(gameId, 15);
 
+        const unclaimed = user ? db.getUserUnclaimedAmount(user.username) : 0;
         this.send(client.ws, 'game_state', {
           gameId,
           round: round ? gameEngine.sanitizeRound(round) : null,
           history,
           user: user ? { username: user.username, balance: user.balance } : null,
+          unclaimed,
         });
 
         this.broadcastOnlinePlayers();
@@ -162,6 +164,68 @@ export class WsServer {
             this.broadcastOnlinePlayers();
           }
         }
+        break;
+      }
+
+      case 'claim_all': {
+        const username: string = (data.username || client.username || '').trim();
+        if (!username) {
+          this.send(client.ws, 'claim_error', { error: 'Username required' });
+          break;
+        }
+        const res = db.claimTickets(username);
+        if (!res.success) {
+          this.send(client.ws, 'claim_error', { error: res.error });
+        } else {
+          this.send(client.ws, 'claim_success', {
+            claimedAmount: res.claimedAmount,
+            newBalance: res.newBalance,
+            unclaimed: 0,
+          });
+          this.sendToUser(username, 'balance_updated', {
+            username,
+            balance: res.newBalance,
+          });
+          this.broadcastToAdmins('user_balance_updated', {
+            username,
+            balance: res.newBalance,
+          });
+          this.broadcastOnlinePlayers();
+        }
+        break;
+      }
+
+      case 'claim_ticket': {
+        const username: string = (data.username || client.username || '').trim();
+        const ticketId: string = data.ticketId;
+        const res = db.claimTickets(username, ticketId);
+        if (!res.success) {
+          this.send(client.ws, 'claim_error', { error: res.error });
+        } else {
+          const remainingUnclaimed = db.getUserUnclaimedAmount(username);
+          this.send(client.ws, 'claim_success', {
+            claimedAmount: res.claimedAmount,
+            newBalance: res.newBalance,
+            unclaimed: remainingUnclaimed,
+            ticketId,
+          });
+          this.sendToUser(username, 'balance_updated', {
+            username,
+            balance: res.newBalance,
+          });
+          this.broadcastToAdmins('user_balance_updated', {
+            username,
+            balance: res.newBalance,
+          });
+          this.broadcastOnlinePlayers();
+        }
+        break;
+      }
+
+      case 'get_unclaimed_tickets': {
+        const username: string = (data.username || client.username || '').trim();
+        const tickets = db.getUnclaimedTickets(username);
+        this.send(client.ws, 'unclaimed_tickets', { tickets });
         break;
       }
 

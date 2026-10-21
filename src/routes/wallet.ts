@@ -79,4 +79,24 @@ router.post('/transactions', (req: Request, res: Response) => {
   });
 });
 
+router.get('/unclaimed', (req: Request, res: Response) => {
+  const username = getUsernameFromReq(req);
+  const tickets = db.getUnclaimedTickets(username);
+  const totalUnclaimed = tickets.reduce((s, t) => s + t.winAmount, 0);
+  return res.json({
+    tickets,
+    totalUnclaimed,
+  });
+});
+
+router.post('/claim', (req: Request, res: Response) => {
+  const username = getUsernameFromReq(req);
+  const ticketId = req.body?.ticketId;
+  const result = db.claimTickets(username, ticketId);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error || 'Failed to claim winnings' });
+  }
+  return res.json(result);
+});
+
 export default router;

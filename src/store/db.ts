@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
-import { User, SuperDistributer, Distributer, WalletTransaction, RoundHistoryEntry, RtpConfig, ActivityLog, CommissionPayoutRecord } from '../types';
+import { User, SuperDistributer, Distributer, WalletTransaction, RoundHistoryEntry, RtpConfig, ActivityLog, CommissionPayoutRecord, UnclaimedTicket } from '../types';
 import {
   UserModel,
   SuperDistributerModel,
@@ -18,6 +18,7 @@ export interface DatabaseSchema {
   transactions: WalletTransaction[];
   roundHistory: RoundHistoryEntry[];
   rtpConfig: RtpConfig;
+  unclaimedTickets?: UnclaimedTicket[];
   adminPercentages?: Record<string, number>;
   liveGameBalances?: Record<string, LiveGameBalance>;
   activityLogs?: ActivityLog[];
@@ -41,6 +42,7 @@ const INITIAL_DB: DatabaseSchema = {
   distributers: [],
   transactions: [],
   roundHistory: [],
+  unclaimedTickets: [],
   adminPercentages: { lucky12: 20, lucky16: 20, luckyTimer: 20 },
   liveGameBalances: {
     lucky12: { gameBalance: 0, totalCollection: 0, totalPayment: 0 },
@@ -77,6 +79,7 @@ class Database {
         this.data = {
           ...INITIAL_DB,
           ...parsed,
+          unclaimedTickets: parsed.unclaimedTickets || [],
           rtpConfig: {
             ...INITIAL_DB.rtpConfig,
             ...(parsed.rtpConfig || {}),
@@ -308,6 +311,61 @@ class Database {
     }
 
     return { user, tx };
+  }
+
+  // ---- Unclaimed Tickets & Winnings ----
+  public getUnclaimedTickets(username?: string): UnclaimedTicket[] {
+    const list = this.data.unclaimedTickets || [];
+    if (!username) return list.filter(t => !t.claimed);
+    return list.filter(t => t.username.toLowerCase() === username.toLowerCase() && !t.claimed);
+  }
+
+  public getUserUnclaimedAmount(username: string): number {
+    return this.getUnclaimedTickets(username).reduce((sum, t) => sum + t.winAmount, 0);
+  }
+
+  public addUnclaimedTicket(ticket: UnclaimedTicket): UnclaimedTicket {
+    if (!this.data.unclaimedTickets) this.data.unclaimedTickets = [];
+    this.data.unclaimedTickets.unshift(ticket);
+    if (this.data.unclaimedTickets.length > 5000) {
+      this.data.unclaimedTickets = this.data.unclaimedTickets.slice(0, 5000);
+    }
+    this.save();
+    return ticket;
+  }
+
+  public claimTickets(
+    username: string,
+    ticketId?: string
+  ): { success: boolean; claimedAmount: number; newBalance: number; error?: string } {
+    const user = this.getUserByUsername(username);
+    if (!user) return { success: false, claimedAmount: 0, newBalance: 0, error: 'User not found' };
+
+    const tickets = this.getUnclaimedTickets(username);
+    const toClaim = ticketId
+      ? tickets.filter(t => t.id === ticketId || t.ticketId === ticketId)
+      : tickets;
+
+    if (toClaim.length === 0) {
+      return { success: false, claimedAmount: 0, newBalance: user.balance, error: 'No unclaimed tickets' };
+    }
+
+    const totalWin = toClaim.reduce((sum, t) => sum + t.winAmount, 0);
+    const now = new Date().toISOString();
+    for (const t of toClaim) {
+      t.claimed = true;
+      t.claimedAt = now;
+    }
+
+    this.adjustUserBalance(
+      user.username,
+      totalWin,
+      `Claimed payout for ${toClaim.length} ticket(s)`,
+      'payout'
+    );
+
+    this.save();
+    return { success: true, claimedAmount: totalWin, newBalance: user.balance };
   }
 
   // ---- Superdistributers & Distributers ----

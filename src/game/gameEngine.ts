@@ -240,15 +240,20 @@ export class GameEngine extends EventEmitter {
       const winAmount = alloc.points * grossMultiplier;
       totalPayout += winAmount;
 
-      // Credit the full winning amount to the winner (NO deduction for player)
-      db.adjustUserBalance(
-        alloc.username,
+      // Record unclaimed winnings ticket: player must claim via "All Claim" button or Unclaim Ticket dialog
+      db.addUnclaimedTicket({
+        id: 'TKT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        ticketId: 'TCK-' + Math.floor(1000 + Math.random() * 9000),
+        roundId: round.id,
+        gameId,
+        username: alloc.username,
+        betAmount: alloc.points,
         winAmount,
-        `Win payout for ${gameId} round ${round.id} (${round.winningCard.label}${round.winningCard.suit}) [${multFactor}x]`,
-        'payout',
-        round.id,
-        gameId
-      );
+        multiplier: multFactor,
+        cardLabel: `${round.winningCard.label}${round.winningCard.suit}`,
+        createdAt: new Date().toISOString(),
+        claimed: false,
+      });
 
       winners.push({
         username: alloc.username,

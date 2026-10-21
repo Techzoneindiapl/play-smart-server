@@ -24,6 +24,21 @@ export interface User {
   lastLogin?: string;
 }
 
+export interface UnclaimedTicket {
+  id: string;
+  ticketId: string;
+  roundId: string;
+  gameId: GameId;
+  username: string;
+  betAmount: number;
+  winAmount: number;
+  multiplier: number;
+  cardLabel?: string;
+  createdAt: string;
+  claimed: boolean;
+  claimedAt?: string;
+}
+
 export interface SuperDistributer {
   id: string;
   name: string;
