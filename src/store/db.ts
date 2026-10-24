@@ -320,6 +320,12 @@ class Database {
     return list.filter(t => t.username.toLowerCase() === username.toLowerCase() && !t.claimed);
   }
 
+  public getAllTickets(username?: string): UnclaimedTicket[] {
+    const list = this.data.unclaimedTickets || [];
+    if (!username) return list;
+    return list.filter(t => t.username.toLowerCase() === username.toLowerCase());
+  }
+
   public getUserUnclaimedAmount(username: string): number {
     return this.getUnclaimedTickets(username).reduce((sum, t) => sum + t.winAmount, 0);
   }
@@ -648,12 +654,16 @@ class Database {
   // ---- User Round History for Player App Reports ----
   public getUserRoundHistory(username: string, limit: number = 50): any[] {
     const all = [...this.data.roundHistory].reverse();
-    const userRounds = all.filter(r => (r.allocations || []).some(a => a.username === username));
+    const userRounds = all.filter(r => (r.allocations || []).some(a => a.username.toLowerCase() === username.toLowerCase()));
     return userRounds.slice(0, limit).map(r => {
-      const userAllocs = (r.allocations || []).filter(a => a.username === username);
+      const userAllocs = (r.allocations || []).filter(a => a.username.toLowerCase() === username.toLowerCase());
       const userBet = userAllocs.reduce((s, a) => s + (a.points || 0), 0);
-      const userWins = (r.winners || []).filter(w => w.username === username);
+      const userWins = (r.winners || []).filter(w => w.username.toLowerCase() === username.toLowerCase());
       const userWon = userWins.reduce((s, w) => s + (w.winAmount || 0), 0);
+      const userTickets = (this.data.unclaimedTickets || []).filter(
+        t => (t.roundId === r.roundId || t.roundId === r.id) && t.username.toLowerCase() === username.toLowerCase()
+      );
+      const isClaimed = userTickets.length > 0 ? userTickets.every(t => t.claimed) : userWon > 0;
       return {
         id: r.id,
         roundId: r.roundId,
@@ -663,6 +673,7 @@ class Database {
         bet: userBet,
         win: userWon,
         net: userWon - userBet,
+        claimed: isClaimed,
       };
     });
   }

@@ -190,6 +190,11 @@ export class WsServer {
             username,
             balance: res.newBalance,
           });
+          this.broadcastToAdmins('ticket_claimed', {
+            username,
+            claimedAmount: res.claimedAmount,
+            newBalance: res.newBalance,
+          });
           this.broadcastOnlinePlayers();
         }
         break;
@@ -216,6 +221,12 @@ export class WsServer {
           this.broadcastToAdmins('user_balance_updated', {
             username,
             balance: res.newBalance,
+          });
+          this.broadcastToAdmins('ticket_claimed', {
+            username,
+            ticketId,
+            claimedAmount: res.claimedAmount,
+            newBalance: res.newBalance,
           });
           this.broadcastOnlinePlayers();
         }

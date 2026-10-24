@@ -547,8 +547,8 @@ router.post('/reports/logs', (req: Request, res: Response) => {
 // ---- Game Bet History (matches http://3.111.29.160/GameBet) ----
 router.get('/reports/game-bet', (req: Request, res: Response) => {
   const { game_type, user_id, date, fromdate, todate, search } = req.query;
-  const history = db.getRoundHistory(undefined, 2000).filter((r: any) => r && r.gameId !== 'luckyTimer');
-  const activeRounds = Object.values(gameEngine.getAllActiveRounds()).filter((r: any) => r && r.gameId !== 'luckyTimer');
+  const history = db.getRoundHistory(undefined, 2000);
+  const activeRounds = Object.values(gameEngine.getAllActiveRounds());
 
   const getCardImg = (c: any) => {
     if (!c) return '';
@@ -578,18 +578,27 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
   // 1. Process active rounds first (Not Result Declare)
   activeRounds.forEach((r: any) => {
     if (!r || r.status === 'revealed' || !r.allocations || r.allocations.length === 0) return;
+    const realAllocs = r.allocations.filter((a: any) => !a.id.endsWith('-twin'));
+    if (realAllocs.length === 0) return;
     const gType = r.gameId === 'lucky16' ? 'lucky_cards_16' : 'lucky_cards_12';
     const deck = r.gameId === 'lucky16' ? DECK_16 : DECK_12;
 
     const userMap: Record<string, any[]> = {};
-    r.allocations.forEach((a: any) => {
+    realAllocs.forEach((a: any) => {
       if (!userMap[a.username]) userMap[a.username] = [];
       userMap[a.username].push(a);
     });
 
     Object.entries(userMap).forEach(([uname, allocs]) => {
       const totalBet = allocs.reduce((sum: number, a: any) => sum + (a.points || 0), 0);
-      const allocCards = allocs.map((a: any) => {
+      const allocByCard: Record<number, { targetIndex: number; points: number }> = {};
+      allocs.forEach(a => {
+        if (!allocByCard[a.targetIndex]) {
+          allocByCard[a.targetIndex] = { targetIndex: a.targetIndex, points: 0 };
+        }
+        allocByCard[a.targetIndex].points += (a.points || 0);
+      });
+      const allocCards = Object.values(allocByCard).map(a => {
         const c = deck[a.targetIndex];
         return {
           cardImg: getCardImg(c),
@@ -617,33 +626,68 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
 
   // 2. Process finished round history
   history.forEach(r => {
+    if (!r.allocations || r.allocations.length === 0) return;
+    const realAllocs = r.allocations.filter((a: any) => !a.id.endsWith('-twin'));
+    if (realAllocs.length === 0) return;
     const is16 = r.gameId === 'lucky16';
     const deck = is16 ? DECK_16 : DECK_12;
     const gType = is16 ? 'lucky_cards_16' : 'lucky_cards_12';
     const winCard = r.winningCard || (r.resultIndex !== undefined ? deck[r.resultIndex] : null);
     const winCardImg = getCardImg(winCard);
 
-    if (r.allocations && r.allocations.length > 0) {
-      const userMap: Record<string, typeof r.allocations> = {};
-      r.allocations.forEach(a => {
-        if (!userMap[a.username]) userMap[a.username] = [];
-        userMap[a.username].push(a);
+    const userMap: Record<string, typeof realAllocs> = {};
+    realAllocs.forEach(a => {
+      if (!userMap[a.username]) userMap[a.username] = [];
+      userMap[a.username].push(a);
+    });
+
+    Object.entries(userMap).forEach(([uname, allocs]) => {
+      const totalBet = allocs.reduce((sum, a) => sum + (a.points || 0), 0);
+      const winEntry = (r.winners || []).find(w => w.username.toLowerCase() === uname.toLowerCase());
+      const wonAmount = winEntry ? winEntry.winAmount : 0;
+      const endPoint = totalBet - wonAmount;
+      const isWin = wonAmount > 0;
+
+      // Check tickets in unclaimedTickets collection to see if claimed by user from game
+      const userTickets = db.getAllTickets(uname).filter(
+        (t: any) => (t.roundId === r.roundId || t.roundId === r.id)
+      );
+      const ticket = userTickets[0];
+      const isClaimed = userTickets.length > 0
+        ? userTickets.every((t: any) => t.claimed)
+        : (isWin && db.getTransactions(1000, uname).some(tx => (tx.roundId === r.roundId || tx.roundId === r.id) && tx.type === 'payout'));
+
+      const allocByCard: Record<number, { targetIndex: number; points: number }> = {};
+      allocs.forEach(a => {
+        if (!allocByCard[a.targetIndex]) {
+          allocByCard[a.targetIndex] = { targetIndex: a.targetIndex, points: 0 };
+        }
+        allocByCard[a.targetIndex].points += (a.points || 0);
+      });
+      const allocCards = Object.values(allocByCard).map(a => {
+        const c = deck[a.targetIndex];
+        const isWinnerCard = winCard && (
+          (c.rank === winCard.rank && c.suit === winCard.suit) ||
+          (c.label === winCard.label && c.suit === winCard.suit) ||
+          a.targetIndex === r.resultIndex
+        );
+        return {
+          cardImg: getCardImg(c),
+          amount: a.points,
+          isWinner: !!isWinnerCard,
+          isClaimed: !!(isWinnerCard && isClaimed),
+          winAmount: isWinnerCard ? wonAmount : 0,
+        };
       });
 
-      Object.entries(userMap).forEach(([uname, allocs]) => {
-        const totalBet = allocs.reduce((sum, a) => sum + (a.points || 0), 0);
-        const winEntry = (r.winners || []).find(w => w.username === uname);
-        const wonAmount = winEntry ? winEntry.winAmount : 0;
-        const endPoint = totalBet - wonAmount;
-        const isWin = wonAmount > 0;
-
-        const allocCards = allocs.map(a => {
-          const c = deck[a.targetIndex];
-          return {
-            cardImg: getCardImg(c),
-            amount: a.points,
-          };
-        });
+      let statusHtml = '<span class="badge badge-danger">Loss</span>';
+      if (isWin) {
+        if (isClaimed) {
+          statusHtml = '<span class="badge badge-success">Claimed</span>';
+        } else {
+          statusHtml = '<span class="badge badge-warning">Unclaimed</span>';
+        }
+      }
 
         rows.push({
           DT_RowIndex: rowIndex++,
@@ -651,22 +695,24 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
           UserName: uname,
           Game_type: gType,
           Game_id: r.roundId || r.id,
-          Ticket_id: 'TCK-' + (r.roundId || r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase()),
+          Ticket_id: ticket ? ticket.ticketId : ('TCK-' + (r.roundId || r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase())),
           Bet: totalBet.toFixed(2),
           Won: wonAmount.toFixed(2),
           End: endPoint.toFixed(2),
           Result: winCardImg
             ? `<img src="/assets/images/cards/${winCardImg}" style="border-radius:0" height="100%" width="30%">`
             : '<span class="badge badge-secondary">Declared</span>',
-          Status: isWin
-            ? '<span class="badge badge-success">Claimed</span>'
-            : '<span class="badge badge-danger">Loss</span>',
+          Status: statusHtml,
           time: r.time,
           allocations: allocCards,
+          isWin,
+          isClaimed,
         });
       });
-    }
   });
+
+  // Sort newest first
+  rows.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
 
   // Filters
   let filtered = rows;
