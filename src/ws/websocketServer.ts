@@ -367,18 +367,25 @@ export class WsServer {
 
   public getOnlinePlayersList(): any[] {
     const active = new Map<string, any>();
-    this.clients.forEach((c) => {
-      if (c.username && !c.isAdmin) {
-        const u = db.getUserByUsername(c.username);
-        active.set(c.username, {
-          username: c.username,
-          name: u?.name || c.username,
+    const dead: string[] = [];
+    this.clients.forEach((c, id) => {
+      if (!c.ws || c.ws.readyState !== WebSocket.OPEN) {
+        dead.push(id);
+        return;
+      }
+      const uname = (c.username || '').trim();
+      if (uname && !c.isAdmin && uname.toLowerCase() !== 'admin' && uname.toLowerCase() !== 'player') {
+        const u = db.getUserByUsername(uname);
+        active.set(uname.toLowerCase(), {
+          username: uname,
+          name: u?.name || uname,
           balance: u?.balance ?? 10000,
           gameId: c.gameId || 'lucky12',
           connectedAt: c.connectedAt,
         });
       }
     });
+    dead.forEach((id) => this.clients.delete(id));
     return Array.from(active.values());
   }
 
