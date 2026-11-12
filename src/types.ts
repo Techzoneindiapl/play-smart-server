@@ -154,3 +154,12 @@ export interface CommissionPayoutRecord {
   createdAt: string;
 }
 
+export interface ActiveSession {
+  token: string;
+  userId: string;
+  username: string;
+  role: User['role'];
+  createdAt: number;
+  expiresAt: number;
+}
+

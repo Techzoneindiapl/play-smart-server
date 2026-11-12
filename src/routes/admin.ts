@@ -4,12 +4,47 @@ import { db } from '../store/db';
 import { gameEngine } from '../game/gameEngine';
 import { wsServer } from '../ws/websocketServer';
 import { DECK_12, DECK_16 } from '../game/deck';
+import { requireAdminSession } from '../middleware/sessionAuth';
 
 const router = Router();
+router.use(requireAdminSession);
 
 // ---- Users Management ----
 router.get('/users', (_req: Request, res: Response) => {
-  return res.json(db.getUsers());
+  const activeSessions = db.getAllActiveSessions();
+  const byUsername = new Map(
+    activeSessions.map(s => [s.username.toLowerCase(), s])
+  );
+  const users = db.getUsers().map(u => {
+    const session = byUsername.get(u.username.toLowerCase());
+    return {
+      ...u,
+      hasActiveSession: Boolean(session),
+      sessionExpiresAt: session?.expiresAt,
+    };
+  });
+  return res.json(users);
+});
+
+router.get('/sessions', (_req: Request, res: Response) => {
+  const sessions = db.getAllActiveSessions().map(s => ({
+    userId: s.userId,
+    username: s.username,
+    role: s.role,
+    createdAt: s.createdAt,
+    expiresAt: s.expiresAt,
+    remainingMs: Math.max(0, s.expiresAt - Date.now()),
+  }));
+  return res.json(sessions);
+});
+
+router.post('/users/:id/logout', (req: Request, res: Response) => {
+  const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = db.getUserById(userId) || db.getUserByUsername(userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const cleared = db.clearSession(user.username);
+  wsServer.notifySessionEnded(user.username, 'force_logged_out', cleared?.token);
+  return res.json({ success: true, username: user.username, wasLoggedIn: Boolean(cleared) });
 });
 
 router.post('/users', (req: Request, res: Response) => {
@@ -57,8 +92,13 @@ router.put('/users/:id', (req: Request, res: Response) => {
 
 router.delete('/users/:id', (req: Request, res: Response) => {
   const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const user = db.getUserById(userId) || db.getUserByUsername(userId);
   const ok = db.deleteUser(userId);
   if (!ok) return res.status(404).json({ error: 'User not found' });
+  if (user) {
+    const cleared = db.clearSession(user.username);
+    wsServer.notifySessionEnded(user.username, 'force_logged_out', cleared?.token);
+  }
   return res.json({ success: true, id: userId });
 });
 
@@ -69,6 +109,10 @@ router.post('/users/:id/status', (req: Request, res: Response) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
   const newStatus = status || (user.status === 'active' ? 'blocked' : 'active');
   const updated = db.updateUser(user.id, { status: newStatus });
+  if (newStatus === 'blocked') {
+    const cleared = db.clearSession(user.username);
+    wsServer.notifySessionEnded(user.username, 'blocked', cleared?.token);
+  }
   return res.json(updated);
 });
 

@@ -1,18 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../store/db';
+import {
+  requireAuthSession,
+  resolveAuthenticatedUsername,
+} from '../middleware/sessionAuth';
 
 const router = Router();
+router.use(requireAuthSession);
 
 function getUsernameFromReq(req: Request): string {
-  const q = req.query.username as string;
-  if (q) return q;
-  const auth = req.headers.authorization;
-  if (auth && auth.startsWith('Bearer jwt_')) {
-    try {
-      return Buffer.from(auth.replace('Bearer jwt_', ''), 'base64').toString('utf-8');
-    } catch (_) {}
-  }
-  return 'demo';
+  return resolveAuthenticatedUsername(req);
 }
 
 router.get('/balance', (req: Request, res: Response) => {

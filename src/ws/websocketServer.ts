@@ -8,6 +8,7 @@ interface ConnectedClient {
   id: string;
   ws: WebSocket;
   username?: string;
+  sessionToken?: string;
   gameId?: GameId;
   isAdmin: boolean;
   connectedAt: number;
@@ -16,6 +17,7 @@ interface ConnectedClient {
 export class WsServer {
   private wss: WebSocketServer | null = null;
   private clients: Map<string, ConnectedClient> = new Map();
+  private sessionCheckTimer: NodeJS.Timeout | null = null;
 
   public init(httpServer: HttpServer): void {
     this.wss = new WebSocketServer({ server: httpServer });
@@ -57,6 +59,115 @@ export class WsServer {
     });
 
     this.bindGameEngineEvents();
+
+    if (this.sessionCheckTimer) clearInterval(this.sessionCheckTimer);
+    this.sessionCheckTimer = setInterval(() => {
+      const expired = db.pruneExpiredSessions();
+      for (const session of expired) {
+        this.notifySessionEnded(session.username, 'expired', session.token);
+      }
+    }, 15000);
+  }
+
+  private ensureActiveUserWs(
+    client: ConnectedClient,
+    incomingToken?: string
+  ): { username: string; session: NonNullable<ReturnType<typeof db.getSessionByToken>> } | null {
+    const token = (typeof incomingToken === 'string' && incomingToken.trim()) || client.sessionToken;
+    if (!token) {
+      this.send(client.ws, 'session_expired', {
+        reason: 'auth_required',
+        message: 'Authentication required. Please login again.',
+      });
+      client.username = undefined;
+      client.sessionToken = undefined;
+      client.isAdmin = false;
+      return null;
+    }
+
+    const session = db.getSessionByToken(token);
+    if (!session) {
+      this.send(client.ws, 'session_expired', {
+        reason: 'expired',
+        message: 'Your session has expired or been logged out. Please login again.',
+      });
+      client.username = undefined;
+      client.sessionToken = undefined;
+      client.isAdmin = false;
+      this.broadcastOnlinePlayers();
+      return null;
+    }
+
+    const user = db.getUserByUsername(session.username);
+    if (!user || user.status === 'blocked') {
+      db.clearSessionByToken(token);
+      this.send(client.ws, 'session_expired', {
+        reason: 'blocked',
+        message: 'Your account is blocked or unavailable.',
+      });
+      client.username = undefined;
+      client.sessionToken = undefined;
+      client.isAdmin = false;
+      this.broadcastOnlinePlayers();
+      return null;
+    }
+
+    client.sessionToken = session.token;
+    client.username = session.username;
+    return { username: session.username, session };
+  }
+
+  private ensureActiveAdminWs(client: ConnectedClient, incomingToken?: string): boolean {
+    const checked = this.ensureActiveUserWs(client, incomingToken);
+    if (!checked) return false;
+    const role = checked.session.role;
+    if (role !== 'admin' && role !== 'distributer' && role !== 'superdistributer') {
+      this.send(client.ws, 'session_expired', {
+        reason: 'forbidden',
+        message: 'Administrator privileges required.',
+      });
+      client.isAdmin = false;
+      return false;
+    }
+    client.isAdmin = true;
+    return true;
+  }
+
+  public notifySessionEnded(
+    username: string,
+    reason: 'expired' | 'logged_out' | 'force_logged_out' | 'blocked',
+    token?: string
+  ): void {
+    const unameLower = username.trim().toLowerCase();
+    const message =
+      reason === 'expired'
+        ? 'Your 12-hour session has expired. Please login again.'
+        : reason === 'force_logged_out'
+          ? 'Your session was ended by an administrator. Please login again.'
+          : reason === 'blocked'
+            ? 'Your account has been blocked by administrator.'
+            : 'You have been logged out. Please login again.';
+
+    this.clients.forEach((c) => {
+      const matchesUser = c.username && c.username.toLowerCase() === unameLower;
+      const matchesToken = token && c.sessionToken && c.sessionToken === token;
+      if (matchesUser || matchesToken) {
+        this.send(c.ws, 'session_expired', {
+          reason,
+          username,
+          message,
+        });
+        c.username = undefined;
+        c.sessionToken = undefined;
+        c.isAdmin = false;
+      }
+    });
+    this.broadcastOnlinePlayers();
+    this.broadcastToAdmins('user_session_updated', {
+      username,
+      hasActiveSession: false,
+      reason,
+    });
   }
 
   private handleClientMessage(client: ConnectedClient, payload: any): void {
@@ -70,26 +181,13 @@ export class WsServer {
         break;
 
       case 'join_game': {
+        const checked = this.ensureActiveUserWs(client, data.token);
+        if (!checked) break;
         const gameId: GameId = data.gameId || 'lucky12';
-        const username: string = (data.username || 'player').trim();
+        const username: string = checked.username;
         client.gameId = gameId;
-        client.username = username;
 
-        let user = db.getUserByUsername(username);
-        if (!user && username) {
-          user = db.addUser({
-            id: 'usr-' + Math.random().toString(36).substring(2, 9),
-            username,
-            name: username,
-            password: '123',
-            role: 'user',
-            balance: 10000,
-            status: 'active',
-            createdAt: new Date().toISOString(),
-          });
-          this.broadcastToAdmins('user_created', user);
-        }
-
+        const user = db.getUserByUsername(username);
         const round = gameEngine.getRound(gameId);
         const history = db.getRoundHistory(gameId, 15);
 
@@ -107,7 +205,7 @@ export class WsServer {
       }
 
       case 'admin_subscribe': {
-        client.isAdmin = true;
+        if (!this.ensureActiveAdminWs(client, data.token)) break;
         const activeRounds = gameEngine.getAllActiveRounds();
         const history = db.getRoundHistory(undefined, 20);
         const online = this.getOnlinePlayersList();
@@ -124,24 +222,13 @@ export class WsServer {
       }
 
       case 'place_bet': {
+        const checked = this.ensureActiveUserWs(client, data.token);
+        if (!checked) break;
         const gameId: GameId = data.gameId || client.gameId || 'lucky12';
-        const username: string = (data.username || client.username || 'player').trim();
+        const username: string = checked.username;
         const bets = Array.isArray(data.bets) ? data.bets : [{ targetIndex: data.targetIndex, points: data.points }];
 
-        let user = db.getUserByUsername(username);
-        if (!user && username) {
-          user = db.addUser({
-            id: 'usr-' + Math.random().toString(36).substring(2, 9),
-            username,
-            name: username,
-            password: '123',
-            role: 'user',
-            balance: 10000,
-            status: 'active',
-            createdAt: new Date().toISOString(),
-          });
-          this.broadcastToAdmins('user_created', user);
-        }
+        const user = db.getUserByUsername(username);
         const totalBatchPoints = bets.reduce((sum: number, b: any) => sum + (Number(b.points) || 0), 0);
         if (user && user.balance < totalBatchPoints) {
           this.send(client.ws, 'bet_error', {
@@ -168,11 +255,9 @@ export class WsServer {
       }
 
       case 'claim_all': {
-        const username: string = (data.username || client.username || '').trim();
-        if (!username) {
-          this.send(client.ws, 'claim_error', { error: 'Username required' });
-          break;
-        }
+        const checked = this.ensureActiveUserWs(client, data.token);
+        if (!checked) break;
+        const username: string = checked.username;
         const res = db.claimTickets(username);
         if (!res.success) {
           this.send(client.ws, 'claim_error', { error: res.error });
@@ -201,7 +286,9 @@ export class WsServer {
       }
 
       case 'claim_ticket': {
-        const username: string = (data.username || client.username || '').trim();
+        const checked = this.ensureActiveUserWs(client, data.token);
+        if (!checked) break;
+        const username: string = checked.username;
         const ticketId: string = data.ticketId;
         const res = db.claimTickets(username, ticketId);
         if (!res.success) {
@@ -234,25 +321,30 @@ export class WsServer {
       }
 
       case 'get_unclaimed_tickets': {
-        const username: string = (data.username || client.username || '').trim();
+        const checked = this.ensureActiveUserWs(client, data.token);
+        if (!checked) break;
+        const username: string = checked.username;
         const tickets = db.getUnclaimedTickets(username);
         this.send(client.ws, 'unclaimed_tickets', { tickets });
         break;
       }
 
       case 'admin_set_forced_winner': {
+        if (!this.ensureActiveAdminWs(client, data.token)) break;
         const { gameId, index, mode, multiplier, cardLabel } = data;
         gameEngine.setForcedWinner(gameId, index !== undefined ? Number(index) : null, mode, multiplier, cardLabel);
         break;
       }
 
       case 'admin_force_lock': {
+        if (!this.ensureActiveAdminWs(client, data.token)) break;
         const { gameId } = data;
         gameEngine.forceLockAndReveal(gameId);
         break;
       }
 
       case 'admin_set_percentages': {
+        if (!this.ensureActiveAdminWs(client, data.token)) break;
         const { lucky_cards_12, lucky_cards_16, lucky12, lucky16, luckyTimer } = data;
         if (lucky_cards_12 !== undefined || lucky12 !== undefined) {
           db.setAdminPercentage('lucky12', Number(lucky_cards_12 ?? lucky12));
@@ -268,6 +360,7 @@ export class WsServer {
       }
 
       case 'admin_update_rtp': {
+        if (!this.ensureActiveAdminWs(client, data.token)) break;
         const { rtpConfig } = data;
         if (rtpConfig) {
           const updated = db.updateRtpConfig(rtpConfig);
@@ -277,6 +370,7 @@ export class WsServer {
       }
 
       case 'admin_reset_game_balance': {
+        if (!this.ensureActiveAdminWs(client, data.token)) break;
         const gameId: string = data.gameId || 'lucky12';
         const updatedBal = db.resetGameBalance(gameId);
         this.broadcastToAdmins('live_balance_updated', {

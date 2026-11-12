@@ -2,8 +2,15 @@ import { Router, Request, Response } from 'express';
 import { GameId } from '../types';
 import { gameEngine } from '../game/gameEngine';
 import { db } from '../store/db';
+import {
+  AuthenticatedRequest,
+  requireAuthSession,
+  resolveAuthenticatedUsername,
+  validateBearerIfPresent,
+} from '../middleware/sessionAuth';
 
 const router = Router();
+router.use(validateBearerIfPresent);
 
 router.get('/current/:gameId', (req: Request, res: Response) => {
   const gameId = req.params.gameId as GameId;
@@ -27,28 +34,18 @@ router.get('/history/:gameId', (req: Request, res: Response) => {
   return res.json(history);
 });
 
-router.get('/user-history/:username', (req: Request, res: Response) => {
-  const username = String(req.params.username);
+router.get('/user-history/:username', requireAuthSession, (req: AuthenticatedRequest, res: Response) => {
+  const requested = String(req.params.username);
+  const username =
+    req.session!.role === 'admin' ? requested : req.session!.username;
   const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
   const history = db.getUserRoundHistory(username, limit);
   return res.json(history);
 });
 
-function getUsernameFromReq(req: Request): string {
-  const q = req.query.username as string;
-  if (q) return q;
-  const auth = req.headers.authorization;
-  if (auth && auth.startsWith('Bearer jwt_')) {
-    try {
-      return Buffer.from(auth.replace('Bearer jwt_', ''), 'base64').toString('utf-8');
-    } catch (_) {}
-  }
-  return 'demo';
-}
-
-router.post('/bet', (req: Request, res: Response) => {
+router.post('/bet', requireAuthSession, (req: AuthenticatedRequest, res: Response) => {
   const { gameId, targetIndex, points } = req.body;
-  const username = req.body.username || getUsernameFromReq(req);
+  const username = resolveAuthenticatedUsername(req);
   if (!gameId || targetIndex === undefined || !points || points <= 0) {
     return res.status(400).json({ error: 'Missing required bet parameters' });
   }

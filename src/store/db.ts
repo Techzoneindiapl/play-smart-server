@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
-import { User, SuperDistributer, Distributer, WalletTransaction, RoundHistoryEntry, RtpConfig, ActivityLog, CommissionPayoutRecord, UnclaimedTicket } from '../types';
+import { User, SuperDistributer, Distributer, WalletTransaction, RoundHistoryEntry, RtpConfig, ActivityLog, CommissionPayoutRecord, UnclaimedTicket, ActiveSession } from '../types';
 import {
   UserModel,
   SuperDistributerModel,
@@ -10,6 +10,8 @@ import {
   TransactionModel,
   RtpConfigModel,
 } from '../models';
+
+export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export interface DatabaseSchema {
   users: User[];
@@ -23,6 +25,7 @@ export interface DatabaseSchema {
   liveGameBalances?: Record<string, LiveGameBalance>;
   activityLogs?: ActivityLog[];
   commissionPayoutRecords?: CommissionPayoutRecord[];
+  activeSessions?: Record<string, ActiveSession>;
 }
 
 export interface LiveGameBalance {
@@ -32,7 +35,7 @@ export interface LiveGameBalance {
 }
 
 const DATA_DIR = path.resolve(__dirname, '../../data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
+const DB_FILE = process.env.DB_FILE ? path.resolve(process.env.DB_FILE) : path.join(DATA_DIR, 'db.json');
 
 const INITIAL_DB: DatabaseSchema = {
   users: [
@@ -58,6 +61,7 @@ const INITIAL_DB: DatabaseSchema = {
     rankWeights: { J: 33.3, Q: 33.3, K: 33.3 },
     rankStatus: { J: 'Auto-Tuned', Q: 'Auto-Tuned', K: 'Auto-Tuned' },
   },
+  activeSessions: {},
 };
 
 class Database {
@@ -80,6 +84,7 @@ class Database {
           ...INITIAL_DB,
           ...parsed,
           unclaimedTickets: parsed.unclaimedTickets || [],
+          activeSessions: parsed.activeSessions || {},
           rtpConfig: {
             ...INITIAL_DB.rtpConfig,
             ...(parsed.rtpConfig || {}),
@@ -711,6 +716,89 @@ class Database {
     return list.slice(0, limit);
   }
 
+  // ---- Sessions ----
+  private getSessionKey(username: string): string {
+    return username.trim().toLowerCase();
+  }
+
+  public pruneExpiredSessions(now = Date.now()): ActiveSession[] {
+    if (!this.data.activeSessions) {
+      this.data.activeSessions = {};
+      return [];
+    }
+    const expired: ActiveSession[] = [];
+    for (const [key, session] of Object.entries(this.data.activeSessions)) {
+      if (!session || typeof session.expiresAt !== 'number' || now >= session.expiresAt) {
+        if (session) expired.push(session);
+        delete this.data.activeSessions[key];
+      }
+    }
+    if (expired.length > 0) {
+      this.saveSync();
+    }
+    return expired;
+  }
+
+  public getActiveSession(username: string, now = Date.now()): ActiveSession | undefined {
+    this.pruneExpiredSessions(now);
+    const key = this.getSessionKey(username);
+    return this.data.activeSessions?.[key];
+  }
+
+  public getSessionByToken(token: string, now = Date.now()): ActiveSession | undefined {
+    if (!token) return undefined;
+    this.pruneExpiredSessions(now);
+    const sessions = this.data.activeSessions || {};
+    return Object.values(sessions).find(s => s.token === token);
+  }
+
+  public getAllActiveSessions(now = Date.now()): ActiveSession[] {
+    this.pruneExpiredSessions(now);
+    return Object.values(this.data.activeSessions || {});
+  }
+
+  public createSession(user: User, token: string, ttlMs = SESSION_TTL_MS): ActiveSession {
+    if (!this.data.activeSessions) {
+      this.data.activeSessions = {};
+    }
+    const now = Date.now();
+    const session: ActiveSession = {
+      token,
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      createdAt: now,
+      expiresAt: now + ttlMs,
+    };
+    this.data.activeSessions[this.getSessionKey(user.username)] = session;
+    user.lastLogin = new Date(now).toISOString();
+    this.saveSync();
+    return session;
+  }
+
+  public clearSession(username: string): ActiveSession | undefined {
+    if (!this.data.activeSessions) return undefined;
+    const key = this.getSessionKey(username);
+    const existing = this.data.activeSessions[key];
+    if (existing) {
+      delete this.data.activeSessions[key];
+      this.saveSync();
+    }
+    return existing;
+  }
+
+  public clearSessionByToken(token: string): ActiveSession | undefined {
+    if (!token || !this.data.activeSessions) return undefined;
+    for (const [key, session] of Object.entries(this.data.activeSessions)) {
+      if (session.token === token) {
+        delete this.data.activeSessions[key];
+        this.saveSync();
+        return session;
+      }
+    }
+    return undefined;
+  }
+
   // ---- Commission Payout Records ----
   public addCommissionPayoutRecord(rec: { username: string; role: string; oldCommission: number; amount: number; newCommission: number }): CommissionPayoutRecord {
     if (!this.data.commissionPayoutRecords) this.data.commissionPayoutRecords = [];
@@ -755,6 +843,7 @@ class Database {
       },
       activityLogs: [],
       commissionPayoutRecords: [],
+      activeSessions: {},
     };
     this.saveSync();
 
