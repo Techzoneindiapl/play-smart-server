@@ -69,6 +69,7 @@ export interface Allocation {
   points: number;
   placedAt: number;
   cardLabel?: string;
+  ticketId?: string;
 }
 
 export interface Round {
@@ -120,7 +121,7 @@ export interface RoundHistoryEntry {
   multiplierFactor?: number;
   time: string;
   allocations?: Allocation[];
-  winners?: { username: string; points: number; winAmount: number; multiplier: number }[];
+  winners?: { username: string; points: number; winAmount: number; multiplier: number; ticketId?: string }[];
 }
 
 export interface RtpConfig {

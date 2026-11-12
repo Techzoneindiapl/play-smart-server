@@ -219,6 +219,7 @@ export class GameEngine extends EventEmitter {
       adminCut?: number;
       multiplier: number;
       multiplierFactor?: number;
+      ticketId?: string;
     }[] = [];
     let totalPayout = 0;
 
@@ -239,19 +240,25 @@ export class GameEngine extends EventEmitter {
 
       const winAmount = alloc.points * grossMultiplier;
       totalPayout += winAmount;
+      const allocTicketId = alloc.ticketId || this.generateTicketId();
+      const ticketBetTotal = alloc.ticketId
+        ? round.allocations
+            .filter(a => !a.id.endsWith('-twin') && a.ticketId === alloc.ticketId)
+            .reduce((s, a) => s + a.points, 0)
+        : alloc.points;
 
       // Record unclaimed winnings ticket: player must claim via "All Claim" button or Unclaim Ticket dialog
       db.addUnclaimedTicket({
         id: 'TKT-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
-        ticketId: 'TCK-' + Math.floor(1000 + Math.random() * 9000),
+        ticketId: allocTicketId,
         roundId: round.id,
         gameId,
         username: alloc.username,
-        betAmount: alloc.points,
+        betAmount: ticketBetTotal,
         winAmount,
         multiplier: multFactor,
         cardLabel: `${round.winningCard.label}${round.winningCard.suit}`,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(alloc.placedAt || Date.now()).toISOString(),
         claimed: false,
       });
 
@@ -262,6 +269,7 @@ export class GameEngine extends EventEmitter {
         grossWin: winAmount,
         multiplier: multFactor,
         multiplierFactor: multFactor,
+        ticketId: allocTicketId,
       });
     }
 
@@ -350,13 +358,22 @@ export class GameEngine extends EventEmitter {
     this.timers.set(gameId, nextRoundTimer);
   }
 
+  public generateTicketId(): string {
+    return (
+      'TCK-' +
+      Date.now().toString(36).toUpperCase().slice(-5) +
+      Math.random().toString(36).substring(2, 6).toUpperCase()
+    );
+  }
+
   public placeAllocation(
     gameId: GameId,
     username: string,
     targetIndex: number,
     points: number,
-    isBot = false
-  ): { success: boolean; error?: string; allocation?: Allocation; newBalance?: number } {
+    isBot = false,
+    ticketId?: string
+  ): { success: boolean; error?: string; allocation?: Allocation; ticketId?: string; newBalance?: number } {
     const round = this.activeRounds.get(gameId);
     if (!round) return { success: false, error: 'Game not found' };
     if (round.status !== 'betting') return { success: false, error: 'Betting is closed for this round' };
@@ -385,6 +402,8 @@ export class GameEngine extends EventEmitter {
     }
 
     const card = deck[targetIndex];
+    const resolvedTicketId =
+      ticketId && ticketId.trim() ? ticketId.trim() : this.generateTicketId();
     const alloc: Allocation = {
       id: 'ALLOC-' + Math.random().toString(36).substring(2, 9),
       username,
@@ -392,6 +411,7 @@ export class GameEngine extends EventEmitter {
       points,
       placedAt: Date.now(),
       cardLabel: `${card.label}${card.suit}`,
+      ticketId: resolvedTicketId,
     };
 
     round.allocations.push(alloc);
@@ -436,11 +456,16 @@ export class GameEngine extends EventEmitter {
           username,
           balance: updatedUser.balance,
         });
-        return { success: true, allocation: alloc, newBalance: updatedUser.balance };
+        return {
+          success: true,
+          allocation: alloc,
+          ticketId: resolvedTicketId,
+          newBalance: updatedUser.balance,
+        };
       }
     }
 
-    return { success: true, allocation: alloc };
+    return { success: true, allocation: alloc, ticketId: resolvedTicketId };
   }
 
   // Admin controls

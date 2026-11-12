@@ -627,13 +627,16 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
     const gType = r.gameId === 'lucky16' ? 'lucky_cards_16' : 'lucky_cards_12';
     const deck = r.gameId === 'lucky16' ? DECK_16 : DECK_12;
 
-    const userMap: Record<string, any[]> = {};
+    const ticketMap: Record<string, { username: string; ticketId?: string; allocs: any[] }> = {};
     realAllocs.forEach((a: any) => {
-      if (!userMap[a.username]) userMap[a.username] = [];
-      userMap[a.username].push(a);
+      const key = a.ticketId ? `tck::${a.ticketId}` : `legacy::${a.username}`;
+      if (!ticketMap[key]) {
+        ticketMap[key] = { username: a.username, ticketId: a.ticketId, allocs: [] };
+      }
+      ticketMap[key].allocs.push(a);
     });
 
-    Object.entries(userMap).forEach(([uname, allocs]) => {
+    Object.values(ticketMap).forEach(({ username: uname, ticketId: allocTicketId, allocs }) => {
       const totalBet = allocs.reduce((sum: number, a: any) => sum + (a.points || 0), 0);
       const allocByCard: Record<number, { targetIndex: number; points: number }> = {};
       allocs.forEach(a => {
@@ -656,7 +659,7 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
         UserName: uname,
         Game_type: gType,
         Game_id: r.id,
-        Ticket_id: 'TCK-' + (r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase()),
+        Ticket_id: allocTicketId || ('TCK-' + (r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase())),
         Bet: totalBet.toFixed(2),
         Won: '0.00',
         End: totalBet.toFixed(2),
@@ -679,23 +682,30 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
     const winCard = r.winningCard || (r.resultIndex !== undefined ? deck[r.resultIndex] : null);
     const winCardImg = getCardImg(winCard);
 
-    const userMap: Record<string, typeof realAllocs> = {};
+    const ticketMap: Record<string, { username: string; ticketId?: string; allocs: typeof realAllocs }> = {};
     realAllocs.forEach(a => {
-      if (!userMap[a.username]) userMap[a.username] = [];
-      userMap[a.username].push(a);
+      const key = a.ticketId ? `tck::${a.ticketId}` : `legacy::${a.username}`;
+      if (!ticketMap[key]) {
+        ticketMap[key] = { username: a.username, ticketId: a.ticketId, allocs: [] };
+      }
+      ticketMap[key].allocs.push(a);
     });
 
-    Object.entries(userMap).forEach(([uname, allocs]) => {
+    Object.values(ticketMap).forEach(({ username: uname, ticketId: allocTicketId, allocs }) => {
       const totalBet = allocs.reduce((sum, a) => sum + (a.points || 0), 0);
-      const winEntry = (r.winners || []).find(w => w.username.toLowerCase() === uname.toLowerCase());
-      const wonAmount = winEntry ? winEntry.winAmount : 0;
+      const matchingWins = allocTicketId
+        ? (r.winners || []).filter((w: any) => w.ticketId === allocTicketId)
+        : (r.winners || []).filter(w => w.username.toLowerCase() === uname.toLowerCase());
+      const wonAmount = matchingWins.reduce((sum, w) => sum + (w.winAmount || 0), 0);
       const endPoint = totalBet - wonAmount;
       const isWin = wonAmount > 0;
 
       // Check tickets in unclaimedTickets collection to see if claimed by user from game
-      const userTickets = db.getAllTickets(uname).filter(
-        (t: any) => (t.roundId === r.roundId || t.roundId === r.id)
-      );
+      const userTickets = db.getAllTickets(uname).filter((t: any) => {
+        const sameRound = t.roundId === r.roundId || t.roundId === r.id;
+        if (!sameRound) return false;
+        return allocTicketId ? t.ticketId === allocTicketId : true;
+      });
       const ticket = userTickets[0];
       const isClaimed = userTickets.length > 0
         ? userTickets.every((t: any) => t.claimed)
@@ -733,26 +743,30 @@ router.get('/reports/game-bet', (req: Request, res: Response) => {
         }
       }
 
-        rows.push({
-          DT_RowIndex: rowIndex++,
-          CreateDate: formatDateTime(r.time),
-          UserName: uname,
-          Game_type: gType,
-          Game_id: r.roundId || r.id,
-          Ticket_id: ticket ? ticket.ticketId : ('TCK-' + (r.roundId || r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase())),
-          Bet: totalBet.toFixed(2),
-          Won: wonAmount.toFixed(2),
-          End: endPoint.toFixed(2),
-          Result: winCardImg
-            ? `<img src="/assets/images/cards/${winCardImg}" style="border-radius:0" height="100%" width="30%">`
-            : '<span class="badge badge-secondary">Declared</span>',
-          Status: statusHtml,
-          time: r.time,
-          allocations: allocCards,
-          isWin,
-          isClaimed,
-        });
+      const ticketIso = allocs[0]?.placedAt
+        ? new Date(allocs[0].placedAt).toISOString()
+        : r.time;
+
+      rows.push({
+        DT_RowIndex: rowIndex++,
+        CreateDate: formatDateTime(ticketIso),
+        UserName: uname,
+        Game_type: gType,
+        Game_id: r.roundId || r.id,
+        Ticket_id: allocTicketId || (ticket ? ticket.ticketId : ('TCK-' + (r.roundId || r.id || '').replace('RND-', '') + '-' + (uname.slice(0, 3).toUpperCase()))),
+        Bet: totalBet.toFixed(2),
+        Won: wonAmount.toFixed(2),
+        End: endPoint.toFixed(2),
+        Result: winCardImg
+          ? `<img src="/assets/images/cards/${winCardImg}" style="border-radius:0" height="100%" width="30%">`
+          : '<span class="badge badge-secondary">Declared</span>',
+        Status: statusHtml,
+        time: ticketIso,
+        allocations: allocCards,
+        isWin,
+        isClaimed,
       });
+    });
   });
 
   // Sort newest first

@@ -44,21 +44,47 @@ router.get('/user-history/:username', requireAuthSession, (req: AuthenticatedReq
 });
 
 router.post('/bet', requireAuthSession, (req: AuthenticatedRequest, res: Response) => {
-  const { gameId, targetIndex, points } = req.body;
+  const { gameId, targetIndex, points, bets } = req.body;
   const username = resolveAuthenticatedUsername(req);
-  if (!gameId || targetIndex === undefined || !points || points <= 0) {
+  const betItems: { targetIndex: number; points: number }[] = Array.isArray(bets)
+    ? bets
+    : targetIndex !== undefined && points && points > 0
+      ? [{ targetIndex, points }]
+      : [];
+
+  if (!gameId || betItems.length === 0) {
     return res.status(400).json({ error: 'Missing required bet parameters' });
   }
 
-  const result = gameEngine.placeAllocation(gameId as GameId, username, targetIndex, points, false);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error });
+  const batchTicketId = gameEngine.generateTicketId();
+  const allocations: any[] = [];
+  let latestBalance: number | undefined;
+
+  for (const item of betItems) {
+    if (item.targetIndex === undefined || !item.points || item.points <= 0) {
+      return res.status(400).json({ error: 'Invalid bet item parameters' });
+    }
+    const result = gameEngine.placeAllocation(
+      gameId as GameId,
+      username,
+      item.targetIndex,
+      item.points,
+      false,
+      batchTicketId
+    );
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+    if (result.allocation) allocations.push(result.allocation);
+    latestBalance = result.newBalance;
   }
 
   return res.json({
     success: true,
-    allocation: result.allocation,
-    balance: result.newBalance,
+    ticketId: batchTicketId,
+    allocation: allocations[0],
+    allocations,
+    balance: latestBalance,
   });
 });
 

@@ -659,28 +659,73 @@ class Database {
   // ---- User Round History for Player App Reports ----
   public getUserRoundHistory(username: string, limit: number = 50): any[] {
     const all = [...this.data.roundHistory].reverse();
-    const userRounds = all.filter(r => (r.allocations || []).some(a => a.username.toLowerCase() === username.toLowerCase()));
-    return userRounds.slice(0, limit).map(r => {
-      const userAllocs = (r.allocations || []).filter(a => a.username.toLowerCase() === username.toLowerCase());
-      const userBet = userAllocs.reduce((s, a) => s + (a.points || 0), 0);
-      const userWins = (r.winners || []).filter(w => w.username.toLowerCase() === username.toLowerCase());
-      const userWon = userWins.reduce((s, w) => s + (w.winAmount || 0), 0);
-      const userTickets = (this.data.unclaimedTickets || []).filter(
-        t => (t.roundId === r.roundId || t.roundId === r.id) && t.username.toLowerCase() === username.toLowerCase()
+    const unameLower = username.toLowerCase();
+    const userRounds = all.filter(r =>
+      (r.allocations || []).some(a => !a.id.endsWith('-twin') && a.username.toLowerCase() === unameLower)
+    );
+    const ticketEntries: any[] = [];
+
+    for (const r of userRounds) {
+      const userAllocs = (r.allocations || []).filter(
+        a => !a.id.endsWith('-twin') && a.username.toLowerCase() === unameLower
       );
-      const isClaimed = userTickets.length > 0 ? userTickets.every(t => t.claimed) : userWon > 0;
-      return {
-        id: r.id,
-        roundId: r.roundId,
-        gameId: r.gameId,
-        time: r.time,
-        winningCard: r.winningCard,
-        bet: userBet,
-        win: userWon,
-        net: userWon - userBet,
-        claimed: isClaimed,
-      };
-    });
+      const ticketGroups = new Map<string, typeof userAllocs>();
+      for (const a of userAllocs) {
+        const key = a.ticketId ? `tck::${a.ticketId}` : `legacy::${r.roundId || r.id}::${unameLower}`;
+        const list = ticketGroups.get(key) || [];
+        list.push(a);
+        ticketGroups.set(key, list);
+      }
+
+      const groupList = Array.from(ticketGroups.values()).sort(
+        (a, b) => (b[0]?.placedAt || 0) - (a[0]?.placedAt || 0)
+      );
+
+      for (const allocs of groupList) {
+        const allocTicketId = allocs[0]?.ticketId;
+        const ticketBet = allocs.reduce((s, a) => s + (a.points || 0), 0);
+        const matchingWins = allocTicketId
+          ? (r.winners || []).filter((w: any) => w.ticketId === allocTicketId)
+          : (r.winners || []).filter(w => w.username.toLowerCase() === unameLower);
+        const ticketWon = matchingWins.reduce((s, w) => s + (w.winAmount || 0), 0);
+
+        const userTickets = (this.data.unclaimedTickets || []).filter(t => {
+          const sameRound = t.roundId === r.roundId || t.roundId === r.id;
+          const sameUser = t.username.toLowerCase() === unameLower;
+          if (!sameRound || !sameUser) return false;
+          return allocTicketId ? t.ticketId === allocTicketId : true;
+        });
+        const isClaimed = userTickets.length > 0 ? userTickets.every(t => t.claimed) : ticketWon > 0;
+        const ticketTime = allocs[0]?.placedAt
+          ? new Date(allocs[0].placedAt).toISOString()
+          : r.time;
+
+        ticketEntries.push({
+          id: allocTicketId || r.id,
+          ticketId: allocTicketId || userTickets[0]?.ticketId || ('TCK-' + (r.roundId || r.id || '').replace('RND-', '')),
+          roundId: r.roundId,
+          gameId: r.gameId,
+          time: ticketTime,
+          drawTime: r.time,
+          winningCard: r.winningCard,
+          bet: ticketBet,
+          win: ticketWon,
+          net: ticketWon - ticketBet,
+          claimed: isClaimed,
+          allocations: allocs.map(a => ({
+            targetIndex: a.targetIndex,
+            cardLabel: a.cardLabel,
+            points: a.points,
+          })),
+        });
+
+        if (ticketEntries.length >= limit) break;
+      }
+
+      if (ticketEntries.length >= limit) break;
+    }
+
+    return ticketEntries;
   }
 
   // ---- Activity Logs ----

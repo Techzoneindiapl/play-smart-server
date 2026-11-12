@@ -239,13 +239,15 @@ export class WsServer {
           break;
         }
 
+        const batchTicketId = gameEngine.generateTicketId();
         for (const b of bets) {
-          const res = gameEngine.placeAllocation(gameId, username, b.targetIndex, b.points, false);
+          const res = gameEngine.placeAllocation(gameId, username, b.targetIndex, b.points, false, batchTicketId);
           if (!res.success) {
             this.send(client.ws, 'bet_error', { error: res.error, targetIndex: b.targetIndex });
           } else {
             this.send(client.ws, 'bet_success', {
               allocation: res.allocation,
+              ticketId: res.ticketId || batchTicketId,
               newBalance: res.newBalance,
             });
             this.broadcastOnlinePlayers();
